@@ -310,6 +310,7 @@ where
         name: &str,
         file_type: FileType,
         permissions: FilePermissions,
+        time: Option<Duration>,
     ) -> Result<Arc<dyn Inode>> {
         let fs = self.fs_ref.upgrade().unwrap();
         let mut inner = self.inner.lock().await;
@@ -325,7 +326,7 @@ where
                     mode: InodeMode::S_IFREG | InodeMode::from_bits(permissions.bits()).unwrap(),
                     uid: 0,
                     gid: 0,
-                    time: Default::default(),
+                    time: time.unwrap_or_default(),
                     flags: InodeFlags::empty(),
                 })
                 .await?;

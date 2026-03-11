@@ -1,3 +1,4 @@
+use crate::clock::realtime::date;
 use crate::{
     drivers::{DM, Driver},
     process::Task,
@@ -351,7 +352,9 @@ impl VFS {
                         return Err(FsError::NotADirectory.into());
                     }
 
-                    parent_inode.create(file_name, FileType::File, mode).await?
+                    parent_inode
+                        .create(file_name, FileType::File, mode, Some(date()))
+                        .await?
                 } else {
                     // O_CREAT was not specified, so NotFound is the correct error.
                     return Err(FsError::NotFound.into());
@@ -455,7 +458,7 @@ impl VFS {
 
                 // Delegate the creation to the filesystem-specific inode.
                 parent_inode
-                    .create(dir_name, FileType::Directory, mode)
+                    .create(dir_name, FileType::Directory, mode, Some(date()))
                     .await?;
 
                 Ok(())

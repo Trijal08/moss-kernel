@@ -30,6 +30,7 @@ use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String, sync::Arc};
 use async_trait::async_trait;
 use attr::{FileAttr, FilePermissions};
+use core::time::Duration;
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -256,6 +257,7 @@ pub trait Inode: Send + Sync + Any {
         _name: &str,
         _file_type: FileType,
         _permissions: FilePermissions,
+        _time: Option<Duration>,
     ) -> Result<Arc<dyn Inode>> {
         Err(KernelError::NotSupported)
     }

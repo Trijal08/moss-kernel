@@ -23,6 +23,7 @@ use alloc::{
     vec::Vec,
 };
 use async_trait::async_trait;
+use core::time::Duration;
 use core::{
     cmp::min,
     marker::PhantomData,
@@ -423,6 +424,7 @@ where
         name: &str,
         file_type: FileType,
         mode: FilePermissions,
+        _time: Option<Duration>,
     ) -> Result<Arc<dyn Inode>> {
         let mut entries = self.entries.lock_save_irq();
 
@@ -988,6 +990,7 @@ mod tests {
                 "test_file.txt",
                 FileType::File,
                 FilePermissions::from_bits_retain(0),
+                None,
             )
             .await
             .expect("Create failed");
@@ -1006,12 +1009,17 @@ mod tests {
         let fs = setup_fs();
         let root = fs.root_inode().await.unwrap();
 
-        root.create("dup", FileType::File, FilePermissions::from_bits_retain(0))
-            .await
-            .unwrap();
+        root.create(
+            "dup",
+            FileType::File,
+            FilePermissions::from_bits_retain(0),
+            None,
+        )
+        .await
+        .unwrap();
 
         let res = root
-            .create("dup", FileType::File, FilePermissions::empty())
+            .create("dup", FileType::File, FilePermissions::empty(), None)
             .await;
         assert!(res.is_err(), "Should not allow duplicate file creation");
     }
@@ -1023,13 +1031,18 @@ mod tests {
 
         // Create /subdir
         let subdir = root
-            .create("subdir", FileType::Directory, FilePermissions::empty())
+            .create(
+                "subdir",
+                FileType::Directory,
+                FilePermissions::empty(),
+                None,
+            )
             .await
             .unwrap();
 
         // Create /subdir/inner
         let inner = subdir
-            .create("inner", FileType::File, FilePermissions::empty())
+            .create("inner", FileType::File, FilePermissions::empty(), None)
             .await
             .unwrap();
 
@@ -1045,13 +1058,13 @@ mod tests {
         let root = fs.root_inode().await.unwrap();
 
         // Create files in "random" order
-        root.create("c.txt", FileType::File, FilePermissions::empty())
+        root.create("c.txt", FileType::File, FilePermissions::empty(), None)
             .await
             .unwrap();
-        root.create("a.txt", FileType::File, FilePermissions::empty())
+        root.create("a.txt", FileType::File, FilePermissions::empty(), None)
             .await
             .unwrap();
-        root.create("b.dir", FileType::Directory, FilePermissions::empty())
+        root.create("b.dir", FileType::Directory, FilePermissions::empty(), None)
             .await
             .unwrap();
 
@@ -1076,11 +1089,11 @@ mod tests {
         let root = fs.root_inode().await.unwrap();
 
         let f1 = root
-            .create("f1", FileType::File, FilePermissions::empty())
+            .create("f1", FileType::File, FilePermissions::empty(), None)
             .await
             .unwrap();
         let f2 = root
-            .create("f2", FileType::File, FilePermissions::empty())
+            .create("f2", FileType::File, FilePermissions::empty(), None)
             .await
             .unwrap();
 
