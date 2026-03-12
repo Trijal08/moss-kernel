@@ -31,9 +31,10 @@ use core::marker::PhantomData;
 use core::num::NonZeroU32;
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
-use ext4plus::{
-    AsyncIterator, AsyncSkip, Dir, DirEntryName, Ext4, Ext4Read, Ext4Write, File, FollowSymlinks,
-    InodeCreationOptions, InodeFlags, InodeMode, Metadata, ReadDir, write_at,
+use ext4plus::prelude::{
+    AsyncIterator, AsyncSkip, Dir, DirEntryName, Ext4, Ext4Error, Ext4Read, Ext4Write, File,
+    FollowSymlinks, Inode as ExtInode, InodeCreationOptions, InodeFlags, InodeMode, Metadata,
+    PathBuf as ExtPathBuf, ReadDir, write_at,
 };
 use log::error;
 
@@ -59,13 +60,13 @@ impl Ext4Write for BlockBuffer {
     }
 }
 
-impl From<ext4plus::Ext4Error> for KernelError {
-    fn from(err: ext4plus::Ext4Error) -> Self {
+impl From<Ext4Error> for KernelError {
+    fn from(err: Ext4Error) -> Self {
         match err {
-            ext4plus::Ext4Error::NotFound => KernelError::Fs(FsError::NotFound),
-            ext4plus::Ext4Error::NotADirectory => KernelError::Fs(FsError::NotADirectory),
-            ext4plus::Ext4Error::AlreadyExists => KernelError::Fs(FsError::AlreadyExists),
-            ext4plus::Ext4Error::Corrupt(c) => {
+            Ext4Error::NotFound => KernelError::Fs(FsError::NotFound),
+            Ext4Error::NotADirectory => KernelError::Fs(FsError::NotADirectory),
+            Ext4Error::AlreadyExists => KernelError::Fs(FsError::AlreadyExists),
+            Ext4Error::Corrupt(c) => {
                 error!("Corrupt EXT4 filesystem: {c}, likely a bug");
                 KernelError::Fs(FsError::InvalidFs)
             }
@@ -143,21 +144,20 @@ impl DirStream for ReadDirWrapper {
     }
 }
 
-#[expect(clippy::large_enum_variant)]
 enum InodeInner {
     Regular(File),
     Directory(Dir),
-    Other(ext4plus::Inode),
+    Other(ExtInode),
 }
 
 impl InodeInner {
-    async fn new(inode: ext4plus::Inode, fs: &Ext4) -> Self {
+    async fn new(inode: ExtInode, fs: &Ext4) -> Self {
         match inode.file_type() {
             ext4plus::FileType::Regular => {
                 InodeInner::Regular(File::open_inode(fs, inode).unwrap())
             }
             ext4plus::FileType::Directory => {
-                InodeInner::Directory(Dir::open(fs.clone(), inode).await.unwrap())
+                InodeInner::Directory(Dir::open_inode(fs, inode).await.unwrap())
             }
             _ => InodeInner::Other(inode),
         }
@@ -165,12 +165,12 @@ impl InodeInner {
 }
 
 impl Deref for InodeInner {
-    type Target = ext4plus::Inode;
+    type Target = ExtInode;
 
     fn deref(&self) -> &Self::Target {
         match self {
             InodeInner::Regular(f) => f.inode(),
-            InodeInner::Directory(d) => d.as_ref(),
+            InodeInner::Directory(d) => d.inode(),
             InodeInner::Other(i) => i,
         }
     }
@@ -180,7 +180,7 @@ impl DerefMut for InodeInner {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             InodeInner::Regular(f) => f.inode_mut(),
-            InodeInner::Directory(d) => d.as_mut(),
+            InodeInner::Directory(d) => d.inode_mut(),
             InodeInner::Other(i) => i,
         }
     }
@@ -190,7 +190,7 @@ pub struct Ext4Inode<CPU: CpuOps> {
     fs_ref: Weak<Ext4Filesystem<CPU>>,
     id: NonZeroU32,
     inner: Mutex<InodeInner, CPU>,
-    path: ext4plus::PathBuf,
+    path: ExtPathBuf,
 }
 
 #[async_trait]
@@ -311,6 +311,7 @@ where
         name: &str,
         file_type: FileType,
         permissions: FilePermissions,
+        time: Option<Duration>,
     ) -> Result<Arc<dyn Inode>> {
         let fs = self.fs_ref.upgrade().unwrap();
         let mut inner = self.inner.lock().await;
@@ -326,14 +327,14 @@ where
                     mode: InodeMode::S_IFREG | InodeMode::from_bits(permissions.bits()).unwrap(),
                     uid: 0,
                     gid: 0,
-                    time: Default::default(),
+                    time: time.unwrap_or_default(),
                     flags: InodeFlags::empty(),
                 })
                 .await?;
             InodeInner::Regular(File::open_inode(&fs.inner, inode)?)
         } else if matches!(file_type, FileType::Directory) {
-            let old_links_count = inner_dir.as_ref().links_count();
-            inner_dir.as_mut().set_links_count(old_links_count + 1);
+            let old_links_count = inner_dir.inode().links_count();
+            inner_dir.inode_mut().set_links_count(old_links_count + 1);
             let inode = fs
                 .inner
                 .create_inode(InodeCreationOptions {
@@ -377,7 +378,7 @@ where
         if inode.id().fs_id() != fs.id() {
             return Err(KernelError::Fs(FsError::CrossDevice));
         }
-        let mut other_inode = ext4plus::Inode::read(
+        let mut other_inode = ExtInode::read(
             &fs.inner,
             (inode.id().inode_id() as u32).try_into().unwrap(),
         )
@@ -445,12 +446,12 @@ where
         let old_parent_id = old_parent.id();
         let fs = self.fs_ref.upgrade().unwrap();
 
-        let old_parent_inode = ext4plus::Inode::read(
+        let old_parent_inode = ExtInode::read(
             &fs.inner,
             (old_parent_id.inode_id() as u32).try_into().unwrap(),
         )
         .await?;
-        let old_parent_dir = Dir::open(fs.inner.clone(), old_parent_inode).await?;
+        let old_parent_dir = Dir::open_inode(&fs.inner, old_parent_inode).await?;
 
         let inner = self.inner.lock().await;
         let inner_dir = match &*inner {
@@ -548,7 +549,7 @@ where
             .symlink(
                 inner_dir,
                 DirEntryName::try_from(name.as_bytes()).unwrap(),
-                ext4plus::PathBuf::new(target.as_str().as_bytes()),
+                ExtPathBuf::new(target.as_str().as_bytes()),
                 0,
                 0,
                 Duration::from_secs(0),
@@ -618,7 +619,7 @@ where
             fs_ref: self.this.clone(),
             id: root.index,
             inner: Mutex::new(InodeInner::new(root, &self.inner).await),
-            path: ext4plus::PathBuf::new("/"),
+            path: ExtPathBuf::new("/"),
         }))
     }
 
