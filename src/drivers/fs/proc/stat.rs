@@ -1,7 +1,9 @@
 use crate::arch::{Arch, ArchImpl};
 use crate::drivers::timer::uptime;
 use crate::kernel::cpu_id::CpuId;
+use crate::process::TASK_LIST;
 use crate::process::clone::NUM_FORKS;
+use crate::sched::sched_task::state::TaskState;
 use crate::sched::{CpuStat, NUM_CONTEXT_SWITCHES, get_cpu_stat};
 use alloc::boxed::Box;
 use alloc::format;
@@ -82,6 +84,20 @@ impl SimpleFile for ProcStatInode {
                 stat.guest_nice
             ));
         }
+        let tasks = TASK_LIST.lock_save_irq();
+        let mut procs_running = 0;
+        let mut procs_blocked = 0;
+        for task in tasks.values().filter_map(|t| t.upgrade()) {
+            let state = task.state.load(Ordering::Relaxed);
+            match state {
+                TaskState::Running | TaskState::Runnable | TaskState::Woken => procs_running += 1,
+                TaskState::Sleeping
+                | TaskState::Stopped
+                | TaskState::PendingSleep
+                | TaskState::PendingStop => procs_blocked += 1,
+                _ => {}
+            }
+        }
         stat_content.push_str(&format!(
             "ctxt {}\n",
             NUM_CONTEXT_SWITCHES.load(Ordering::Relaxed)
@@ -91,6 +107,8 @@ impl SimpleFile for ProcStatInode {
             "processes {}\n",
             NUM_FORKS.load(Ordering::Relaxed)
         ));
+        stat_content.push_str(&format!("procs_running {procs_running}\n",));
+        stat_content.push_str(&format!("procs_blocked {procs_blocked}\n",));
         Ok(stat_content.into_bytes())
     }
 }
