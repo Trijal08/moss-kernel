@@ -12,6 +12,7 @@ use crate::{
     process::{ctx::Context, thread_group::signal::SignalActionState},
     sched::current::current_task,
 };
+use alloc::borrow::ToOwned;
 use alloc::{string::String, vec};
 use alloc::{string::ToString, sync::Arc, vec::Vec};
 use auxv::{AT_BASE, AT_ENTRY, AT_NULL, AT_PAGESZ, AT_PHDR, AT_PHENT, AT_PHNUM, AT_RANDOM};
@@ -212,6 +213,7 @@ async fn exec_elf(
     let mut fd_table = current_task().fd_table.lock_save_irq().clone();
     fd_table.close_cloexec_entries().await;
     *current_task().fd_table.lock_save_irq() = fd_table;
+    *current_task().process.executable.lock_save_irq() = Some(path.to_owned());
 
     Ok(())
 }

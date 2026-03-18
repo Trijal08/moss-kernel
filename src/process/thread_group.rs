@@ -17,6 +17,7 @@ use core::{
     fmt::Display,
     sync::atomic::{AtomicU32, Ordering},
 };
+use libkernel::fs::pathbuf::PathBuf;
 use pid::PidT;
 use rsrc_lim::ResourceLimits;
 use signal::{SigId, SigSet, SignalActionState};
@@ -111,6 +112,7 @@ pub struct ThreadGroup {
     pub utime: AtomicUsize,
     pub stime: AtomicUsize,
     pub last_account: AtomicUsize,
+    pub executable: SpinLock<Option<PathBuf>>,
     next_tid: AtomicU32,
 }
 

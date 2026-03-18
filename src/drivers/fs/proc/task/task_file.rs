@@ -18,6 +18,7 @@ pub enum TaskFileType {
     State,
     Stat,
     Maps,
+    Exe,
 }
 
 impl TryFrom<&str> for TaskFileType {
@@ -32,6 +33,7 @@ impl TryFrom<&str> for TaskFileType {
             "cwd" => Ok(TaskFileType::Cwd),
             "root" => Ok(TaskFileType::Root),
             "maps" => Ok(TaskFileType::Maps),
+            "exe" => Ok(TaskFileType::Exe),
             _ => Err(()),
         }
     }
@@ -56,7 +58,7 @@ impl ProcTaskFileInode {
                     | TaskFileType::State
                     | TaskFileType::Maps
                     | TaskFileType::Stat => FileType::File,
-                    TaskFileType::Cwd | TaskFileType::Root => FileType::Symlink,
+                    TaskFileType::Cwd | TaskFileType::Root | TaskFileType::Exe => FileType::Symlink,
                 },
                 permissions: FilePermissions::from_bits_retain(0o444),
                 ..FileAttr::default()
@@ -197,6 +199,14 @@ Threads:\t{tasks}\n",
 
                     output
                 }
+                TaskFileType::Exe => {
+                    if let Some(exe) = task.process.executable.lock_save_irq().clone() {
+                        // TODO: Check if exists
+                        exe.as_str().to_string()
+                    } else {
+                        "(deleted)".to_string()
+                    }
+                }
             }
         } else {
             "State:\tGone\n".to_string()
@@ -240,6 +250,28 @@ Threads:\t{tasks}\n",
             return if let Some(task) = task_details {
                 let root = task.root.lock_save_irq();
                 Ok(root.1.clone())
+            } else {
+                Err(FsError::NotFound.into())
+            };
+        } else if let TaskFileType::Exe = self.file_type {
+            let tid = self.tid;
+            let task_list = TASK_LIST.lock_save_irq();
+            let id = task_list
+                .iter()
+                .find(|(desc, _)| desc.tid() == tid)
+                .map(|(desc, _)| *desc);
+            drop(task_list);
+            let task_details = if let Some(desc) = id {
+                find_task_by_descriptor(&desc)
+            } else {
+                None
+            };
+            return if let Some(task) = task_details {
+                if let Some(exe) = task.process.executable.lock_save_irq().clone() {
+                    Ok(exe.as_str().to_string().into())
+                } else {
+                    Err(FsError::NotFound.into())
+                }
             } else {
                 Err(FsError::NotFound.into())
             };

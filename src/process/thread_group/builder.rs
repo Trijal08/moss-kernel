@@ -90,6 +90,7 @@ impl ThreadGroupBuilder {
             next_tid: AtomicU32::new(1),
             state: SpinLock::new(ProcessState::Running),
             tasks: SpinLock::new(BTreeMap::new()),
+            executable: SpinLock::new(None),
         });
 
         TG_LIST
