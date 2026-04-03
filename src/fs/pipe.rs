@@ -283,9 +283,14 @@ pub async fn sys_pipe2(ctx: &ProcessCtx, fds: TUA<[Fd; 2]>, flags: u32) -> Resul
         (read_fd, write_fd)
     };
 
-    // TODO: What if the copy fails here, we've leaked the above file
-    // descriptors.
-    copy_to_user(fds, [read_fd as _, write_fd as _]).await?;
+    // copy_to_user will only EFAULT
+    if let Err(e) = copy_to_user(fds, [read_fd as _, write_fd as _]).await {
+        // Clean up the file descriptors we created.
+        let mut fds = ctx.task().fd_table.lock_save_irq();
+        fds.remove(read_fd);
+        fds.remove(write_fd);
+        return Err(e);
+    }
 
     Ok(0)
 }
