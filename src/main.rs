@@ -21,17 +21,15 @@ use drivers::{fdt_prober::get_fdt, fs::register_fs_drivers};
 use fs::VFS;
 use getargs::{Opt, Options};
 use libkernel::{
-    CpuOps, KernAddressSpace,
+    CpuOps,
     fs::{
         BlockDevice, OpenFlags, attr::FilePermissions, blk::ramdisk::RamdiskBlkDev, path::Path,
         pathbuf::PathBuf,
     },
     memory::{
         address::{PA, VA},
-	permissions::PtePermissions,
         proc_vm::address_space::VirtualMemory,
         region::PhysMemoryRegion,
-	region::VirtMemoryRegion,
     },
 };
 use log::{error, warn};
@@ -48,7 +46,6 @@ mod clock;
 mod console;
 mod drivers;
 mod fs;
-mod initramfs;
 mod interrupts;
 mod kernel;
 mod memory;
@@ -88,53 +85,48 @@ fn read_fdt_u32_or_u64(prop: &fdt_parser::Property<'_>) -> libkernel::error::Res
     }
 }
 
-fn initrd_region() -> Option<PhysMemoryRegion> {
-    let dt = get_fdt();
-    let chosen = dt.find_nodes("/chosen").next()?;
-    let start_addr = chosen
-        .find_property("linux,initrd-start")
-        .map(|prop| read_fdt_u32_or_u64(&prop))
-        .transpose()
-        .unwrap_or_else(|e| panic!("Invalid linux,initrd-start property: {e}"))?;
-    let end_addr = chosen
-        .find_property("linux,initrd-end")
-        .map(|prop| read_fdt_u32_or_u64(&prop))
-        .transpose()
-        .unwrap_or_else(|e| panic!("Invalid linux,initrd-end property: {e}"))?;
-
-    Some(PhysMemoryRegion::from_start_end_address(
-        PA::from_value(start_addr as _),
-        PA::from_value(end_addr as _),
-    ))
-}
-
-fn map_initrd_bytes(region: PhysMemoryRegion) -> libkernel::error::Result<&'static [u8]> {
-    const INITRD_BASE: usize = 0xffff_9800_0000_0000;
-
-    let aligned_start = PA::from_value(region.start_address().value() & !0xfffusize);
-    let offset = region.start_address().value() - aligned_start.value();
-    let aligned_size = (offset + region.size() + 0xfff) & !0xfffusize;
-    let virt = VA::from_value(INITRD_BASE);
-
-    ArchImpl::kern_address_space().lock_save_irq().map_normal(
-        PhysMemoryRegion::new(aligned_start, aligned_size),
-        VirtMemoryRegion::new(virt, aligned_size),
-        PtePermissions::ro(false),
-    )?;
-
-    // SAFETY: The region has been mapped into the kernel address space above
-    // and remains mapped for the rest of boot.
-    Ok(unsafe {
-        core::slice::from_raw_parts(virt.cast::<u8>().as_ptr().add(offset), region.size())
-    })
-}
-
 async fn launch_init(mut ctx: ProcessCtx, mut opts: KOptions) {
     let init = opts
         .init
         .unwrap_or_else(|| panic!("No init specified in kernel command line"));
 
-    let initrd_region = initrd_region();
+    let dt = get_fdt();
+
+    let initrd_block_dev: Option<Box<dyn BlockDevice>> =
+        if let Some(chosen) = dt.find_nodes("/chosen").next() {
+    let start_addr = chosen
+        .find_property("linux,initrd-start")
+        .map(|prop| read_fdt_u32_or_u64(&prop))
+        .transpose()
+        .unwrap_or_else(|e| panic!("Invalid linux,initrd-start property: {e}"));
+    let end_addr = chosen
+        .find_property("linux,initrd-end")
+        .map(|prop| read_fdt_u32_or_u64(&prop))
+        .transpose()
+        .unwrap_or_else(|e| panic!("Invalid linux,initrd-end property: {e}"));
+
+    if let Some(start_addr) = start_addr
+        && let Some(end_addr) = end_addr
+    {
+        let region = PhysMemoryRegion::from_start_end_address(
+            PA::from_value(start_addr as _),
+            PA::from_value(end_addr as _),
+        );
+
+        Some(Box::new(
+            RamdiskBlkDev::new(
+                region,
+                VA::from_value(0xffff_9800_0000_0000),
+                &mut *ArchImpl::kern_address_space().lock_save_irq(),
+            )
+            .unwrap(),
+        ))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     // Set time to rtc time if possible
     if let Some(rtc) = drivers::rtc::get_rtc()
@@ -147,34 +139,9 @@ async fn launch_init(mut ctx: ProcessCtx, mut opts: KOptions) {
         .root_fs
         .unwrap_or_else(|| panic!("No root FS driver specified in kernel command line"));
 
-    if root_fs == "initramfs" {
-        let initrd = initrd_region.unwrap_or_else(|| panic!("No initrd present for initramfs"));
-        let initrd_bytes =
-            map_initrd_bytes(initrd).unwrap_or_else(|e| panic!("Failed to map initrd: {e}"));
-
-        VFS.mount_root("tmpfs", None)
-            .await
-            .unwrap_or_else(|e| panic!("Failed to mount initramfs tmpfs root: {e}"));
-
-        initramfs::populate_root(VFS.root_inode(), initrd_bytes)
-            .await
-            .unwrap_or_else(|e| panic!("Failed to unpack initramfs: {e}"));
-    } else {
-        let initrd_block_dev: Option<Box<dyn BlockDevice>> = initrd_region.map(|region| {
-            Box::new(
-                RamdiskBlkDev::new(
-                    region,
-                    VA::from_value(0xffff_9800_0000_0000),
-                    &mut *ArchImpl::kern_address_space().lock_save_irq(),
-                )
-                .unwrap(),
-            ) as Box<dyn BlockDevice>
-        });
-
-        VFS.mount_root(&root_fs, initrd_block_dev)
-            .await
-            .unwrap_or_else(|e| panic!("Failed to mount root FS: {e}"));
-    }
+    VFS.mount_root(&root_fs, initrd_block_dev)
+        .await
+        .unwrap_or_else(|e| panic!("Failed to mount root FS: {e}"));
 
     // Process all automounts.
     for (path, fs) in opts.automounts.iter() {
