@@ -29,6 +29,14 @@ pub const KERNEL_STACK_AREA: VirtMemoryRegion = VirtMemoryRegion::from_start_end
     VA::from_value(0xffff_c000_0000_0000),
 );
 
+fn read_fdt_u32_or_u64(prop: &fdt_parser::Property<'_>) -> Result<u64> {
+    match prop.raw_value().len() {
+        4 => Ok(prop.u32().into()),
+        8 => Ok(prop.u64()),
+        _ => Err(KernelError::InvalidValue),
+    }
+}
+
 pub fn setup_allocator(dtb_ptr: TPA<u8>, image_start: PA, image_end: PA) -> Result<()> {
     let dt = unsafe { fdt_parser::Fdt::from_ptr(NonNull::new_unchecked(dtb_ptr.as_ptr_mut())) }
         .map_err(|_| KernelError::InvalidValue)?;
@@ -82,19 +90,25 @@ pub fn setup_allocator(dtb_ptr: TPA<u8>, image_start: PA, image_end: PA) -> Resu
     alloc.add_reservation(PhysMemoryRegion::new(dtb_ptr.to_untyped(), dt.total_size()))?;
 
     // Reserve the initrd.
-    if let Some(chosen) = dt.find_nodes("/chosen").next()
-        && let Some(start_addr) = chosen
+    if let Some(chosen) = dt.find_nodes("/chosen").next() {
+        let start_addr = chosen
             .find_property("linux,initrd-start")
-            .map(|prop| prop.u64())
-        && let Some(end_addr) = chosen
+            .map(|prop| read_fdt_u32_or_u64(&prop))
+            .transpose()?;
+        let end_addr = chosen
             .find_property("linux,initrd-end")
-            .map(|prop| prop.u64())
-    {
-        info!("Reserving initrd 0x{start_addr:X} - 0x{end_addr:X}");
-        alloc.add_reservation(PhysMemoryRegion::from_start_end_address(
-            PA::from_value(start_addr as _),
-            PA::from_value(end_addr as _),
-        ))?;
+            .map(|prop| read_fdt_u32_or_u64(&prop))
+            .transpose()?;
+
+        if let Some(start_addr) = start_addr
+            && let Some(end_addr) = end_addr
+        {
+            info!("Reserving initrd 0x{start_addr:X} - 0x{end_addr:X}");
+            alloc.add_reservation(PhysMemoryRegion::from_start_end_address(
+                PA::from_value(start_addr as _),
+                PA::from_value(end_addr as _),
+            ))?;
+        }
     }
 
     set_kimage_start(image_start);

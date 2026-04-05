@@ -6,7 +6,7 @@ use core::{
 };
 use libkernel::{driver::CharDevDescriptor, error::KernelError};
 use log::{LevelFilter, Log};
-use tty::TtyInputHandler;
+use tty::{Termios2, TtyInputHandler};
 
 use crate::{drivers::timer::uptime, sync::SpinLock};
 
@@ -20,6 +20,9 @@ pub trait Console: Send + Sync {
     fn write_char(&self, c: char);
     fn write_fmt(&self, args: fmt::Arguments) -> fmt::Result;
     fn write_buf(&self, buf: &[u8]);
+    fn set_termios(&self, _termios: &Termios2) -> Result<(), KernelError> {
+        Ok(())
+    }
 
     /// Registers a handler that will receive input bytes.
     fn register_input_handler(&self, handler: Weak<dyn TtyInputHandler>);
@@ -42,11 +45,7 @@ pub fn write_fmt(args: fmt::Arguments) -> fmt::Result {
     let console_state = CONSOLE.lock_save_irq();
 
     match *console_state {
-        ConsoleState::Buffered => {
-            // SAFETY: The lock on CONSOLE_STATE ensures that no other thread
-            // can be reading or writing to the buffer at the same time.
-            unsafe { (*addr_of_mut!(EARLY_BOOT_BUFFER)).write_fmt(args) }
-        }
+        ConsoleState::Buffered => unsafe { (*addr_of_mut!(EARLY_BOOT_BUFFER)).write_fmt(args) },
         ConsoleState::Device(ref console, _) => console.write_fmt(args),
     }
 }

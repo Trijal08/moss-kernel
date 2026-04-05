@@ -29,6 +29,7 @@ pub mod interrupts;
 pub mod probe;
 pub mod rng;
 pub mod rtc;
+pub mod soc;
 pub mod timer;
 pub mod uart;
 mod virtio_hal;

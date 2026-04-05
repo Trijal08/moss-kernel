@@ -24,13 +24,14 @@ use libkernel::{
 };
 use meta::{
     TCGETS, TCGETS2, TCSETS, TCSETS2, TCSETSW, TCSETSW2, TIOCGPGRP, TIOCGWINSZ, TIOCSPGRP,
-    TIOCSWINSZ, Termios, Termios2, TermiosOutputFlags, TtyMetadata,
+    TIOCSWINSZ, Termios, TermiosOutputFlags, TtyMetadata,
 };
 
 use super::Console;
 
 mod cooker;
 mod meta;
+pub use meta::{Termios2, TermiosControlFlags};
 
 /// A trait for an object that can receive input bytes from a console driver.
 pub trait TtyInputHandler: Send + Sync {
@@ -221,10 +222,13 @@ impl FileOps for Tty {
             TCSETS | TCSETSW => {
                 let new_termios: Termios = copy_from_user(TUA::from_value(argp)).await?;
 
-                self.meta
-                    .lock_save_irq()
-                    .termios
-                    .update_from_termios(&new_termios);
+                let termios = {
+                    let mut meta = self.meta.lock_save_irq();
+                    meta.termios.update_from_termios(&new_termios);
+                    meta.termios
+                };
+
+                self.console.set_termios(&termios)?;
 
                 return Ok(0);
             }
@@ -232,6 +236,7 @@ impl FileOps for Tty {
                 let new_termios: Termios2 = copy_from_user(TUA::from_value(argp)).await?;
 
                 self.meta.lock_save_irq().termios = new_termios;
+                self.console.set_termios(&new_termios)?;
 
                 return Ok(0);
             }
