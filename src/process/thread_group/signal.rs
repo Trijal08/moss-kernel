@@ -54,6 +54,7 @@ bitflags! {
        const SIGIO      = 1 << 28;
        const SIGPWR     = 1 << 29;
        const SIGUNUSED  = 1 << 30;
+       const UNMASKABLE_SIGNALS = Self::SIGKILL.bits() | Self::SIGSTOP.bits();
     }
 }
 
@@ -212,9 +213,6 @@ impl Display for SigId {
         f.write_str(name)
     }
 }
-
-// SIGKILL and SIGSTOP
-const UNMASKABLE_SIGNALS: SigSet = SigSet::SIGKILL.union(SigSet::SIGSTOP);
 
 #[derive(Clone, Copy, Debug)]
 pub enum SigActionState {

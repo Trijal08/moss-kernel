@@ -3,7 +3,7 @@ use crate::sched::syscall_ctx::ProcessCtx;
 use libkernel::error::{KernelError, Result};
 use libkernel::memory::address::TUA;
 
-use super::{SigSet, UNMASKABLE_SIGNALS};
+use super::SigSet;
 
 pub const SIG_BLOCK: u32 = 0;
 pub const SIG_UNBLOCK: u32 = 1;
@@ -39,7 +39,7 @@ pub async fn sys_rt_sigprocmask(
             };
 
             // SIGSTOP and SIGKILL can never be masked.
-            new_sigmask.remove(UNMASKABLE_SIGNALS);
+            new_sigmask.remove(SigSet::UNMASKABLE_SIGNALS);
 
             task.sig_mask.store(new_sigmask);
         }
