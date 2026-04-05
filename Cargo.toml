@@ -37,6 +37,7 @@ fdt-parser = "0.4.16"
 futures = { version = "0.3.31", default-features = false, features = ["alloc", "async-await"] }
 getargs = { version = "0.5.0", default-features = false }
 log = { workspace = true }
+miniz_oxide = { version = "0.8.9", default-features = false, features = ["with-alloc"] }
 object = { version = "0.38.0", default-features = false, features = ["core", "elf", "read_core"] }
 paste = { workspace = true }
 ringbuf = { version = "0.4.8", default-features = false, features = ["alloc"] }
@@ -62,4 +63,3 @@ codegen-units = 1
 
 [lints]
 workspace = true
-

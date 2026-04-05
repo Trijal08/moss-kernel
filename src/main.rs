@@ -77,6 +77,14 @@ fn on_panic(info: &PanicInfo) -> ! {
     ArchImpl::power_off();
 }
 
+fn read_fdt_u32_or_u64(prop: &fdt_parser::Property<'_>) -> libkernel::error::Result<u64> {
+    match prop.raw_value().len() {
+        4 => Ok(prop.u32().into()),
+        8 => Ok(prop.u64()),
+        _ => Err(libkernel::error::KernelError::InvalidValue),
+    }
+}
+
 async fn launch_init(mut ctx: ProcessCtx, mut opts: KOptions) {
     let init = opts
         .init
@@ -84,14 +92,21 @@ async fn launch_init(mut ctx: ProcessCtx, mut opts: KOptions) {
 
     let dt = get_fdt();
 
-    let initrd_block_dev: Option<Box<dyn BlockDevice>> = if let Some(chosen) =
-        dt.find_nodes("/chosen").next()
-        && let Some(start_addr) = chosen
-            .find_property("linux,initrd-start")
-            .map(|prop| prop.u64())
-        && let Some(end_addr) = chosen
-            .find_property("linux,initrd-end")
-            .map(|prop| prop.u64())
+    let initrd_block_dev: Option<Box<dyn BlockDevice>> =
+        if let Some(chosen) = dt.find_nodes("/chosen").next() {
+    let start_addr = chosen
+        .find_property("linux,initrd-start")
+        .map(|prop| read_fdt_u32_or_u64(&prop))
+        .transpose()
+        .unwrap_or_else(|e| panic!("Invalid linux,initrd-start property: {e}"));
+    let end_addr = chosen
+        .find_property("linux,initrd-end")
+        .map(|prop| read_fdt_u32_or_u64(&prop))
+        .transpose()
+        .unwrap_or_else(|e| panic!("Invalid linux,initrd-end property: {e}"));
+
+    if let Some(start_addr) = start_addr
+        && let Some(end_addr) = end_addr
     {
         let region = PhysMemoryRegion::from_start_end_address(
             PA::from_value(start_addr as _),
@@ -106,6 +121,9 @@ async fn launch_init(mut ctx: ProcessCtx, mut opts: KOptions) {
             )
             .unwrap(),
         ))
+        } else {
+            None
+        }
     } else {
         None
     };

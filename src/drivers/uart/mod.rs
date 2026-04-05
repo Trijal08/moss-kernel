@@ -31,7 +31,7 @@ use super::{
 use crate::{
     console::{
         Console, set_active_console,
-        tty::{Tty, TtyInputHandler},
+        tty::{Termios2, Tty, TtyInputHandler},
     },
     fs::open_file::OpenFile,
     interrupts::{ClaimedInterrupt, InterruptHandler},
@@ -51,6 +51,8 @@ use libkernel::{
 };
 
 //pub mod bcm2835_aux;
+pub mod exynos_s5p;
+pub mod exynos_zuma_simple;
 pub mod imx_lp;
 pub mod pl011;
 
@@ -81,6 +83,10 @@ pub trait UartDriver: core::fmt::Write + Send + Sync + 'static {
     /// The number of bytes that were actually read from the FIFO and written
     /// into `buf`.
     fn drain_uart_rx(&mut self, buf: &mut [u8]) -> usize;
+
+    fn configure(&mut self, _termios: &Termios2) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// A generic, high-level UART device.
@@ -106,6 +112,10 @@ impl<D: UartDriver> Console for Uart<D> {
 
     fn write_buf(&self, buf: &[u8]) {
         self.driver.lock_save_irq().write_buf(buf);
+    }
+
+    fn set_termios(&self, termios: &Termios2) -> Result<()> {
+        self.driver.lock_save_irq().configure(termios)
     }
 
     fn register_input_handler(&self, handler: Weak<dyn TtyInputHandler>) {
