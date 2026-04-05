@@ -19,21 +19,39 @@
     movk	\register, #:abs_g0_nc:\symbol
 .endm
 
+/*
+* Emit a 64-bit absolute little endian symbol reference in a way that
+* ensures that it will be resolved at build time, even when building a
+* PIE binary. This requires cooperation from the linker script, which
+* must emit the lo32/hi32 halves individually.
+*/
+.macro	le64sym, sym
+    .long	\sym\()_lo32
+    .long	\sym\()_hi32
+.endm
+
+.macro linux_image_header entry
+    /*
+    * DO NOT MODIFY. Image header expected by Linux boot-loaders.
+    */
+    b	\entry
+    .long	0				/* reserved */
+    le64sym	_kernel_offset_le		/* Image load offset from start of RAM, little-endian */
+    le64sym	_kernel_size_le			/* Effective size of kernel image, little-endian */
+    le64sym	_kernel_flags_le		/* Informative flags, little-endian */
+    .quad	0				/* reserved */
+    .quad	0				/* reserved */
+    .quad	0				/* reserved */
+    .ascii	"ARM\x64"			/* Magic number */
+    .long	0				/* reserved */
+.endm
+
 //
 // Entry point of the kernel. x0 contains the FDT address as per Linux boot ABI.
 //
 _start:
     // Linux Kernel Image Header
-    nop
-    b 1f                          // Branch past header
-    .quad   0                     // Text offset (from base of RAM)
-    .quad   0                     // Kernel image size
-    .quad   0                     // Flags
-    .quad   0                     // Reserved
-    .quad   0                     // Reserved
-    .quad   0                     // Reserved
-    .ascii  "ARM\x64"             // Magic value for 64-bit ARM
-    .long   0                     // Version
+    linux_image_header 1f
 
 1:  mov     x19, x0               // Save FDT pointer (device tree blob) for later use
 

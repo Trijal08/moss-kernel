@@ -1,6 +1,8 @@
 PAGE_SIZE = 4K;
 PAGE_MASK = PAGE_SIZE - 1;
 
+#include "linux-kernel-image-header-vars.h"
+
 ENTRY(_start)
 SECTIONS
 {
