@@ -48,6 +48,12 @@ const FIFOCNT_MASK: u32 = 0xff;
 const TXFULL_MASK: u32 = 1 << 24;
 const RXFULL_MASK: u32 = 1 << 8;
 const DEFAULT_UART_CLOCK_HZ: u32 = 24_576_000;
+// Constants aligned with your Linux defines
+const S5PV210_UFSTAT_TXFULL: u32 = 1 << 24;
+const S5PV210_UFSTAT_RXFULL: u32 = 1 << 8;
+const S5PV210_UFSTAT_TXMASK: u32 = 255 << 16;
+const S5PV210_UFSTAT_TXSHIFT: u32 = 16;
+const S5PV210_UFSTAT_RXMASK: u32 = 255 << 0;
 
 register_bitfields![u32,
     UERSTAT [
@@ -102,10 +108,14 @@ impl ExynosS5pUart {
     }
 
     fn init(&mut self) {
-        self.reset_port();
-        self.regs.ulcon.set(ULCON_8N1);
-        self.configure_baud(115_200);
-        self.regs.umcon.set(0);
+        // Comment out the reset and baud config for now.
+        // Let's see if we can "hijack" the bootloader's settings.
+
+        // self.reset_port();
+        // self.configure_baud(115_200);
+
+        // Just ensure interrupts are masked/unmasked as needed for your kernel
+        self.regs.uintm.set(UINT_ALL_MASK);
         self.unmask_rx_interrupt();
     }
 
@@ -128,18 +138,15 @@ impl ExynosS5pUart {
         self.regs.uintm.set(mask);
     }
 
-    fn rx_fifo_count(&self) -> usize {
-        let ufstat = self.regs.ufstat.get();
-
-        if (ufstat & RXFULL_MASK) != 0 {
-            self.fifo_size
-        } else {
-            (ufstat & FIFOCNT_MASK) as usize
-        }
+    fn tx_fifo_full(&self) -> bool {
+        // According to Linux: (1 << 24)
+        (self.regs.ufstat.get() & S5PV210_UFSTAT_TXFULL) != 0
     }
 
-    fn tx_fifo_full(&self) -> bool {
-        (self.regs.ufstat.get() & TXFULL_MASK) != 0
+    fn rx_fifo_count(&self) -> usize {
+        let ufstat = self.regs.ufstat.get();
+        // RXMASK is 255 << 0
+        (ufstat & S5PV210_UFSTAT_RXMASK) as usize
     }
 
     fn tx_empty(&self) -> bool {
@@ -147,27 +154,46 @@ impl ExynosS5pUart {
     }
 
     fn write_byte(&mut self, byte: u8) {
-        while self.tx_fifo_full() {
-            spin_loop();
+        // 1. Handle the "Staircase" effect
+        if byte == b'\n' {
+            while self.tx_fifo_full() {
+                core::hint::spin_loop();
+            }
+            self.regs.utxh.set(b'\r' as u32);
         }
 
+        // 2. Wait for space in the FIFO
+        while self.tx_fifo_full() {
+            core::hint::spin_loop();
+        }
+
+        // 3. Write the actual byte
         self.regs.utxh.set(byte as u32);
     }
 
     fn ack_rx_interrupts(&mut self) {
-        self.regs.utrstat.set(UTRSTAT_TIMEOUT);
-        self.regs.uintp.set(UINT_RXD_MASK);
-        self.unmask_rx_interrupt();
+        self.regs.utrstat.set(UTRSTAT_TIMEOUT); // Clear timeout bit
+        self.regs.uintp.set(UINT_RXD_MASK);     // Clear pending bit
+        // Crucially: You must read URXH to clear the hardware FIFO state
     }
 
     fn configure_baud(&mut self, baud: u32) {
         let baud = baud.max(1);
-        let div = (self.uart_clock_hz / baud).max(16);
-        let ubrdiv = div / 16 - 1;
-        let frac = div & 0xf;
+
+        // Calculate the total divisor in fixed-point (shifted by 4 bits for the fraction)
+        // Formula: (Clock * 16 / (Baud * 16)) -> simplifies to Clock / Baud
+        // But we want (Clock / (Baud * 16)) as the integer,
+        // and the remainder mapped to a 4-bit fraction.
+
+        let div = (self.uart_clock_hz as u64 * 10 / (baud as u64 * 16)) as u32;
+        let ubrdiv = (div / 10).saturating_sub(1);
+
+        // Fractional part: ((Clock / (Baud * 16)) - (Integer Part + 1)) * 16
+        // Using integer-only math to get the .33 fraction mapped to 0-15:
+        let ufracval = (((self.uart_clock_hz % (baud * 16)) * 16) / (baud * 16)) as u32;
 
         self.regs.ubrdiv.set(ubrdiv);
-        self.regs.ufracval.set(frac);
+        self.regs.ufracval.set(ufracval);
     }
 
     fn encode_ulcon(termios: &Termios2) -> u32 {
@@ -339,7 +365,7 @@ pub fn exynos_s5p_init(bus: &mut PlatformBus, _dm: &mut DriverManager) -> Result
         "samsung,exynos4210-uart",
         "samsung,exynos5433-uart",
         "samsung,exynos850-uart",
-        // "google,gs101-uart",
+        "google,gs101-uart",
         "samsung,exynos8895-uart",
     ] {
         bus.register_platform_driver(
