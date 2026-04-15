@@ -27,7 +27,8 @@ macro_rules! define_descriptor {
     (
         $(#[$outer:meta])*
         $name:ident,
-        shift: $shift:literal
+        shift: $shift:literal,
+        bit7: [ $($bit7:tt)* ]
     ) => {
         #[repr(transparent)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +58,7 @@ macro_rules! define_descriptor {
                         PCD OFFSET(4) NUMBITS(1) [ NotCacheable = 1, IsCacheable = 0 ],
                         A OFFSET(5) NUMBITS(1) [ Accessed = 1, NotAccessed = 0 ],
                         D OFFSET(6) NUMBITS(1) [ Dirty = 1, Clean = 0 ],
-                        PS OFFSET(7) NUMBITS(1) [ MapPage = 1, MapTable = 0 ],
+                        $($bit7)*,
                         G OFFSET(8) NUMBITS(1) [ IsGlobal = 1, Local = 0 ],
                         NX OFFSET(63) NUMBITS(1) [ NoExecution = 1, ExecutionAllowed = 0 ],
                     ]
@@ -120,26 +121,30 @@ macro_rules! define_descriptor {
 define_descriptor!(
     /// A page-map level 4 entry descriptor. Can only be an invalid or table
     /// descriptor.
-    PML4E, shift: 39
+    PML4E, shift: 39,
+    bit7: [PS OFFSET(7) NUMBITS(1) [MapTable = 0]]
 );
 
 define_descriptor!(
     /// A page directory pointer entry. Can be a block, table, or invalid descriptor.
-    PDPE, shift: 30
+    PDPE, shift: 30,
+    bit7: [PS OFFSET(7) NUMBITS(1) [MapPage = 1, MapTable = 0]]
 );
 
 define_descriptor!(
     /// A page directory entry. Can be a block, table, or invalid descriptor.
-    PDE, shift: 21
+    PDE, shift: 21,
+    bit7: [PS OFFSET(7) NUMBITS(1) [MapPage = 1, MapTable = 0]]
 );
 
 define_descriptor!(
     /// A page table entry. Can be a page or invalid descriptor.
-    PTE, shift: 12
+    PTE, shift: 12,
+    bit7: [PAT OFFSET(7) NUMBITS(1) [Enabled = 1, Disabled = 0]]
 );
 
 macro_rules! impl_pa_mapper {
-    ($($name:ident),+ $(,)?) => {
+    ($($name:ident),+ ; marker: $marker:expr) => {
         $(
             paste! {
             impl PaMapper for $name {
@@ -160,11 +165,11 @@ macro_rules! impl_pa_mapper {
                         panic!("Cannot map non-aligned physical address");
                     }
 
-                    let reg = InMemoryRegister::new(page_address.value() as u64 & ADDR_MASK);
+                    let reg = InMemoryRegister::new(
+                        (page_address.value() as u64 & ADDR_MASK) | $marker
+                    );
 
                     use [<$name Fields>]::BlockPageFields;
-
-                    reg.modify(BlockPageFields::PS::MapPage + BlockPageFields::P::Present);
 
                     match memory_type {
                         MemoryType::UC => {
@@ -178,16 +183,11 @@ macro_rules! impl_pa_mapper {
                         }
                     }
 
-
                     Self(reg.get()).set_permissions(perms)
                 }
 
                 fn mapped_address(self) -> Option<PA> {
-                    use [<$name Fields>]::BlockPageFields;
-
-                    let reg = InMemoryRegister::new(self.0);
-
-                    if !reg.matches_all(BlockPageFields::P::Present + BlockPageFields::PS::MapPage) {
+                    if (self.0 & $marker) != $marker {
                         return None;
                     }
 
@@ -195,11 +195,14 @@ macro_rules! impl_pa_mapper {
                 }
             }
             }
-        )?
-    }
+        )+
+    };
 }
 
-impl_pa_mapper!(PDPE, PDE, PTE);
+// Block mappings (PDPE, PDE): P + PS must both be set.
+impl_pa_mapper!(PDPE, PDE; marker: (1 << 7) | 1);
+// Page mappings (PTE): only P; bit 7 is PAT, not PS.
+impl_pa_mapper!(PTE; marker: 1);
 
 macro_rules! impl_table_mapper {
     ($($name:ident),+ $(,)?) => {
@@ -432,7 +435,8 @@ mod tests {
         let d = PTE::new_map_pa(pa, MemoryType::WB, perms);
 
         assert!(d.is_valid());
-        assert_eq!(d.as_raw() & (1 << 7 | 1), 1 << 7 | 1); // PS and present
+        assert_eq!(d.as_raw() & 1, 1); // P set
+        assert_eq!(d.as_raw() & (1 << 7), 0); // PAT (bit 7) clear
 
         // Check address part (bits [51:12])
         assert_eq!(
@@ -502,5 +506,40 @@ mod tests {
             // NX must be clear so the subtree can contain executable leaves.
             assert_eq!(d & (1 << 63), 0, "NX bit must be clear on table entry");
         }
+    }
+
+    #[test]
+    fn test_pte_pat_bit_is_clear() {
+        // On 4KiB PTEs, bit 7 is PAT (not PS). With the default PAT MSR,
+        // PAT=0 + PCD=0 + PWT=0 selects WB (index 0). Setting PAT=1 would
+        // select index 4 (typically UC), which is not what we want.
+        let pa = PA::from_value(PAGE_SIZE);
+        for mt in [MemoryType::WB, MemoryType::WT, MemoryType::UC] {
+            let d = PTE::new_map_pa(pa, mt, PtePermissions::rw(false));
+            assert_eq!(
+                d.as_raw() & (1 << 7),
+                0,
+                "PAT bit (7) must be clear on PTE for {:?}",
+                mt
+            );
+        }
+    }
+
+    #[test]
+    fn test_pdpe_pde_ps_bit_is_set() {
+        // Block (large-page) mappings on PDPE and PDE must set PS (bit 7).
+        let pdpe = PDPE::new_map_pa(
+            PA::from_value(1 << 30),
+            MemoryType::WB,
+            PtePermissions::rw(false),
+        );
+        assert_ne!(pdpe.as_raw() & (1 << 7), 0, "PS must be set on PDPE block");
+
+        let pde = PDE::new_map_pa(
+            PA::from_value(1 << 21),
+            MemoryType::WB,
+            PtePermissions::rw(false),
+        );
+        assert_ne!(pde.as_raw() & (1 << 7), 0, "PS must be set on PDE block");
     }
 }
