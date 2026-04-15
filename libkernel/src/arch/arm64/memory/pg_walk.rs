@@ -61,7 +61,9 @@ where
         let end_idx = Self::pg_index(region.end_address_inclusive());
 
         // Calculate the base address of the *entire* table.
-        let table_base_va = region.start_address().align(1 << (T::Descriptor::MAP_SHIFT + 9));
+        let table_base_va = region
+            .start_address()
+            .align(1 << (T::Descriptor::MAP_SHIFT + 9));
 
         for idx in start_idx..=end_idx {
             let entry_va = table_base_va.add_bytes(idx * table_coverage);
@@ -211,7 +213,7 @@ mod tests {
         // Walk and modify permissions to RW
         let mut modifier_was_called = false;
         walk_and_modify_region(
-            harness.l0_table,
+            harness.inner.root_table,
             VirtMemoryRegion::new(va, PAGE_SIZE),
             &mut harness.create_walk_ctx(),
             &mut |_va, desc: L3Descriptor| {
@@ -250,7 +252,7 @@ mod tests {
         // Walk and count the pages modified
         let counter = AtomicUsize::new(0);
         walk_and_modify_region(
-            harness.l0_table,
+            harness.inner.root_table,
             region,
             &mut harness.create_walk_ctx(),
             &mut |_va, desc| {
@@ -285,7 +287,7 @@ mod tests {
 
         let counter = AtomicUsize::new(0);
         walk_and_modify_region(
-            harness.l0_table,
+            harness.inner.root_table,
             region,
             &mut harness.create_walk_ctx(),
             &mut |_va, desc| {
@@ -318,7 +320,7 @@ mod tests {
 
         let counter = AtomicUsize::new(0);
         walk_and_modify_region(
-            harness.l0_table,
+            harness.inner.root_table,
             region,
             &mut harness.create_walk_ctx(),
             &mut |_va, desc| {
@@ -354,7 +356,7 @@ mod tests {
 
         // Walk should succeed and only call the modifier for the valid pages
         walk_and_modify_region(
-            harness.l0_table,
+            harness.inner.root_table,
             entire_region,
             &mut harness.create_walk_ctx(),
             &mut |_va, desc| {
@@ -374,22 +376,23 @@ mod tests {
         let pa = PA::from_value(0x80_0000); // 2MiB aligned
 
         // Manually create a 2MiB block mapping
-        let l1 = map_at_level(harness.l0_table, va, &mut harness.create_map_ctx()).unwrap();
+        let l1 = map_at_level(harness.inner.root_table, va, &mut harness.create_map_ctx()).unwrap();
         let l2 = map_at_level(l1, va, &mut harness.create_map_ctx()).unwrap();
         let l2_desc = L2Descriptor::new_map_pa(pa, MemoryType::Normal, PtePermissions::rw(false));
         unsafe {
             harness
+                .inner
                 .mapper
                 .with_page_table(l2, |l2_tbl| {
                     let table = L2Table::from_ptr(l2_tbl);
-                    table.set_desc(va, l2_desc, &harness.invalidator);
+                    table.set_desc(va, l2_desc, &harness.inner.invalidator);
                 })
                 .unwrap();
         }
 
         let region = VirtMemoryRegion::new(va, PAGE_SIZE);
         let result = walk_and_modify_region(
-            harness.l0_table,
+            harness.inner.root_table,
             region,
             &mut harness.create_walk_ctx(),
             &mut |_va, desc| desc,
@@ -410,7 +413,7 @@ mod tests {
 
         let counter = AtomicUsize::new(0);
         let result = walk_and_modify_region(
-            harness.l0_table,
+            harness.inner.root_table,
             region,
             &mut harness.create_walk_ctx(),
             &mut |_va, desc| {
@@ -430,7 +433,7 @@ mod tests {
         let mut harness = TestHarness::new(10);
         let region = VirtMemoryRegion::new(VA::from_value(0x5_0000_0000), 0); // Zero size
         let result = walk_and_modify_region(
-            harness.l0_table,
+            harness.inner.root_table,
             region,
             &mut harness.create_walk_ctx(),
             &mut |_va, _desc| panic!("Modifier should not be called for empty region"),
@@ -443,7 +446,7 @@ mod tests {
         let mut harness = TestHarness::new(10);
         let region = VirtMemoryRegion::new(VA::from_value(123), PAGE_SIZE); // Not page-aligned
         let result = walk_and_modify_region(
-            harness.l0_table,
+            harness.inner.root_table,
             region,
             &mut harness.create_walk_ctx(),
             &mut |_va, desc| desc,

@@ -346,82 +346,20 @@ pub mod tests {
     use crate::{
         arch::arm64::memory::pg_walk::{WalkContext, walk_and_modify_region},
         error::KernelError,
-        memory::address::{IdentityTranslator, PA, VA},
+        memory::{
+            address::{PA, VA},
+            paging::test::{MockPageAllocator, PassthroughMapper},
+        },
     };
 
-    /// A mock TLB invalidator that does nothing for unit testing.
-    pub struct MockTLBInvalidator;
-    impl TLBInvalidator for MockTLBInvalidator {}
-
-    /// Mock page allocator that allocates on the host heap and uses a counter
-    /// to simulate memory limits.
-    pub struct MockPageAllocator {
-        pages_allocated: usize,
-        max_pages: usize,
+    pub struct Arm64PagingTestHarness {
+        pub inner: crate::memory::paging::test::TestHarness<L0Table>,
     }
 
-    impl MockPageAllocator {
-        fn new(max_pages: usize) -> Self {
+    impl Arm64PagingTestHarness {
+        pub fn new(num_pages: usize) -> Self {
             Self {
-                pages_allocated: 0,
-                max_pages,
-            }
-        }
-    }
-
-    impl PageAllocator for MockPageAllocator {
-        fn allocate_page_table<T: PgTable>(&mut self) -> Result<TPA<PgTableArray<T>>> {
-            if self.pages_allocated >= self.max_pages {
-                Err(KernelError::NoMemory)
-            } else {
-                self.pages_allocated += 1;
-                // Allocate a page-aligned table on the host heap.
-                let layout = std::alloc::Layout::new::<PgTableArray<L0Table>>();
-                let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
-                if ptr.is_null() {
-                    panic!("Host failed to allocate memory for test");
-                }
-
-                // Return the raw pointer value as our "physical address".
-                Ok(TPA::from_value(ptr as usize))
-            }
-        }
-    }
-
-    /// A mock mapper for host-based testing. It assumes that the "physical
-    /// address" (TPA) is just a raw pointer from the host's virtual address
-    /// space, which is true for tests using heap allocation. It performs a
-    /// direct cast.
-    pub struct PassthroughMapper;
-
-    impl PageTableMapper for PassthroughMapper {
-        unsafe fn with_page_table<T: PgTable, R>(
-            &mut self,
-            pa: TPA<PgTableArray<T>>,
-            f: impl FnOnce(TVA<PgTableArray<T>>) -> R,
-        ) -> Result<R> {
-            // The "physical address" in our test is the raw pointer from the heap.
-            // Just cast it back and use it.
-            Ok(f(pa.to_va::<IdentityTranslator>()))
-        }
-    }
-
-    pub struct TestHarness {
-        allocator: MockPageAllocator,
-        pub mapper: PassthroughMapper,
-        pub invalidator: MockTLBInvalidator,
-        pub l0_table: TPA<PgTableArray<L0Table>>,
-    }
-
-    impl TestHarness {
-        pub fn new(max_pages: usize) -> Self {
-            let mut allocator = MockPageAllocator::new(max_pages);
-            let l0_table = allocator.allocate_page_table::<L0Table>().unwrap();
-            Self {
-                allocator,
-                mapper: PassthroughMapper,
-                invalidator: MockTLBInvalidator,
-                l0_table,
+                inner: crate::memory::paging::test::TestHarness::new(num_pages),
             }
         }
 
@@ -429,16 +367,16 @@ pub mod tests {
             &mut self,
         ) -> MappingContext<'_, MockPageAllocator, PassthroughMapper> {
             MappingContext {
-                allocator: &mut self.allocator,
-                mapper: &mut self.mapper,
-                invalidator: &self.invalidator,
+                allocator: &mut self.inner.allocator,
+                mapper: &mut self.inner.mapper,
+                invalidator: &self.inner.invalidator,
             }
         }
 
         pub fn create_walk_ctx(&mut self) -> WalkContext<'_, PassthroughMapper> {
             WalkContext {
-                mapper: &mut self.mapper,
-                invalidator: &self.invalidator,
+                mapper: &mut self.inner.mapper,
+                invalidator: &self.inner.invalidator,
             }
         }
 
@@ -452,7 +390,7 @@ pub mod tests {
         ) -> Result<()> {
             let size = num_pages * PAGE_SIZE;
             map_range(
-                self.l0_table,
+                self.inner.root_table,
                 MapAttributes {
                     phys: PhysMemoryRegion::new(PA::from_value(pa_start), size),
                     virt: VirtMemoryRegion::new(VA::from_value(va_start), size),
@@ -467,7 +405,7 @@ pub mod tests {
         pub fn verify_perms(&mut self, va: VA, expected_perms: PtePermissions) {
             let mut perms_found = None;
             walk_and_modify_region(
-                self.l0_table,
+                self.inner.root_table,
                 VirtMemoryRegion::new(va, PAGE_SIZE),
                 &mut self.create_walk_ctx(),
                 &mut |_va, desc: L3Descriptor| {
@@ -479,6 +417,8 @@ pub mod tests {
             assert_eq!(perms_found, Some(expected_perms));
         }
     }
+
+    pub type TestHarness = Arm64PagingTestHarness;
 
     #[test]
     fn test_pg_index() {
@@ -524,7 +464,7 @@ pub mod tests {
         let virt = VirtMemoryRegion::new(VA::from_value(0x1_0000), PAGE_SIZE);
 
         map_range(
-            harness.l0_table,
+            harness.inner.root_table,
             MapAttributes {
                 phys,
                 virt,
@@ -539,15 +479,18 @@ pub mod tests {
 
         // 1. Check L0 -> L1
         let l1_tpa = unsafe {
-            harness.mapper.with_page_table(harness.l0_table, |l0_tbl| {
-                L0Table::from_ptr(l0_tbl)
-                    .next_table_pa(va)
-                    .expect("L1 table should exist")
-            })?
+            harness
+                .inner
+                .mapper
+                .with_page_table(harness.inner.root_table, |l0_tbl| {
+                    L0Table::from_ptr(l0_tbl)
+                        .next_table_pa(va)
+                        .expect("L1 table should exist")
+                })?
         };
         // 2. Check L1 -> L2
         let l2_tpa = unsafe {
-            harness.mapper.with_page_table(l1_tpa, |l1_tbl| {
+            harness.inner.mapper.with_page_table(l1_tpa, |l1_tbl| {
                 L1Table::from_ptr(l1_tbl)
                     .next_table_pa(va)
                     .expect("L2 table should exist")
@@ -555,7 +498,7 @@ pub mod tests {
         };
         // 3. Check L2 -> L3
         let l3_tpa = unsafe {
-            harness.mapper.with_page_table(l2_tpa, |l2_tbl| {
+            harness.inner.mapper.with_page_table(l2_tpa, |l2_tbl| {
                 L2Table::from_ptr(l2_tbl)
                     .next_table_pa(va)
                     .expect("L3 table should exist")
@@ -564,6 +507,7 @@ pub mod tests {
         // 4. Check L3 descriptor
         let l3_desc = unsafe {
             harness
+                .inner
                 .mapper
                 .with_page_table(l3_tpa, |l3_tbl| L3Table::from_ptr(l3_tbl).get_desc(va))?
         };
@@ -595,23 +539,30 @@ pub mod tests {
             perms: PtePermissions::rx(true),
         };
 
-        map_range(harness.l0_table, attrs, &mut harness.create_map_ctx())?;
+        map_range(
+            harness.inner.root_table,
+            attrs,
+            &mut harness.create_map_ctx(),
+        )?;
 
         // Verification: Walk L0 -> L1, then check the L2 descriptor
         let va = virt.start_address();
 
         // L0 -> L1
         let l1_tpa = unsafe {
-            harness.mapper.with_page_table(harness.l0_table, |tbl| {
-                L0Table::from_ptr(tbl)
-                    .next_table_pa(va)
-                    .expect("L1 table should exist")
-            })?
+            harness
+                .inner
+                .mapper
+                .with_page_table(harness.inner.root_table, |tbl| {
+                    L0Table::from_ptr(tbl)
+                        .next_table_pa(va)
+                        .expect("L1 table should exist")
+                })?
         };
 
         // L1 -> L2
         let l2_tpa = unsafe {
-            harness.mapper.with_page_table(l1_tpa, |tbl| {
+            harness.inner.mapper.with_page_table(l1_tpa, |tbl| {
                 L1Table::from_ptr(tbl)
                     .next_table_pa(va)
                     .expect("L2 table should exist")
@@ -621,6 +572,7 @@ pub mod tests {
         // Check L2 Desc.
         let l2_desc = unsafe {
             harness
+                .inner
                 .mapper
                 .with_page_table(l2_tpa, |l2_tbl| L2Table::from_ptr(l2_tbl).get_desc(va))?
         };
@@ -634,7 +586,7 @@ pub mod tests {
         assert_eq!(l2_desc.mapped_address().unwrap(), phys.start_address());
 
         // Only L0, L1 and L2 tables should have been allocated.
-        assert_eq!(harness.allocator.pages_allocated, 3);
+        assert_eq!(harness.inner.allocator.pages_allocated, 3);
 
         Ok(())
     }
@@ -656,23 +608,31 @@ pub mod tests {
             perms: PtePermissions::rw(false),
         };
 
-        map_range(harness.l0_table, attrs, &mut harness.create_map_ctx())?;
+        map_range(
+            harness.inner.root_table,
+            attrs,
+            &mut harness.create_map_ctx(),
+        )?;
 
         let va1 = virt.start_address();
         let l1_tpa = unsafe {
-            harness.mapper.with_page_table(harness.l0_table, |tbl| {
-                L0Table::from_ptr(tbl).next_table_pa(va1).unwrap()
-            })?
+            harness
+                .inner
+                .mapper
+                .with_page_table(harness.inner.root_table, |tbl| {
+                    L0Table::from_ptr(tbl).next_table_pa(va1).unwrap()
+                })?
         };
 
         let l2_tpa = unsafe {
-            harness.mapper.with_page_table(l1_tpa, |tbl| {
+            harness.inner.mapper.with_page_table(l1_tpa, |tbl| {
                 L1Table::from_ptr(tbl).next_table_pa(va1).unwrap()
             })?
         };
 
         let l2_block_desc = unsafe {
             harness
+                .inner
                 .mapper
                 .with_page_table(l2_tpa, |tbl| L2Table::from_ptr(tbl).get_desc(va1))?
         };
@@ -686,17 +646,18 @@ pub mod tests {
 
         let va2 = VA::from_value(virt.start_address().value() + block_size);
         let l2_tpa = unsafe {
-            harness.mapper.with_page_table(l1_tpa, |tbl| {
+            harness.inner.mapper.with_page_table(l1_tpa, |tbl| {
                 L1Table::from_ptr(tbl).next_table_pa(va2).unwrap()
             })?
         };
         let l3_tpa = unsafe {
-            harness.mapper.with_page_table(l2_tpa, |tbl| {
+            harness.inner.mapper.with_page_table(l2_tpa, |tbl| {
                 L2Table::from_ptr(tbl).next_table_pa(va2).unwrap()
             })?
         };
         let l3_desc = unsafe {
             harness
+                .inner
                 .mapper
                 .with_page_table(l3_tpa, |tbl| L3Table::from_ptr(tbl).get_desc(va2))?
         };
@@ -730,7 +691,11 @@ pub mod tests {
             perms: PtePermissions::rw(true),
         };
 
-        map_range(harness.l0_table, attrs, &mut harness.create_map_ctx())?;
+        map_range(
+            harness.inner.root_table,
+            attrs,
+            &mut harness.create_map_ctx(),
+        )?;
 
         // Confirm 512 L3 mappings exist
         for i in 0..num_pages {
@@ -738,23 +703,27 @@ pub mod tests {
             let pa = PA::from_value(phys.start_address().value() + i * PAGE_SIZE);
 
             let l1_tpa = unsafe {
-                harness.mapper.with_page_table(harness.l0_table, |tbl| {
-                    L0Table::from_ptr(tbl).next_table_pa(va).unwrap()
-                })?
+                harness
+                    .inner
+                    .mapper
+                    .with_page_table(harness.inner.root_table, |tbl| {
+                        L0Table::from_ptr(tbl).next_table_pa(va).unwrap()
+                    })?
             };
             let l2_tpa = unsafe {
-                harness.mapper.with_page_table(l1_tpa, |tbl| {
+                harness.inner.mapper.with_page_table(l1_tpa, |tbl| {
                     L1Table::from_ptr(tbl).next_table_pa(va).unwrap()
                 })?
             };
             let l3_tpa = unsafe {
-                harness.mapper.with_page_table(l2_tpa, |tbl| {
+                harness.inner.mapper.with_page_table(l2_tpa, |tbl| {
                     L2Table::from_ptr(tbl).next_table_pa(va).unwrap()
                 })?
             };
 
             let desc = unsafe {
                 harness
+                    .inner
                     .mapper
                     .with_page_table(l3_tpa, |tbl| L3Table::from_ptr(tbl).get_desc(va))?
             };
@@ -778,10 +747,14 @@ pub mod tests {
             perms: PtePermissions::rw(true),
         };
 
-        let result = map_range(harness.l0_table, attrs, &mut harness.create_map_ctx());
+        let result = map_range(
+            harness.inner.root_table,
+            attrs,
+            &mut harness.create_map_ctx(),
+        );
 
         assert!(matches!(result, Err(KernelError::NoMemory)));
-        assert_eq!(harness.allocator.pages_allocated, 2); // L0 and L1 were allocated, failed on L2
+        assert_eq!(harness.inner.allocator.pages_allocated, 2); // L0 and L1 were allocated, failed on L2
     }
 
     #[test]
@@ -800,7 +773,11 @@ pub mod tests {
         };
 
         assert!(matches!(
-            map_range(harness.l0_table, attrs, &mut harness.create_map_ctx()),
+            map_range(
+                harness.inner.root_table,
+                attrs,
+                &mut harness.create_map_ctx()
+            ),
             Err(KernelError::MappingError(MapError::PhysNotAligned))
         ));
 
@@ -816,7 +793,11 @@ pub mod tests {
         };
 
         assert!(matches!(
-            map_range(harness.l0_table, attrs, &mut harness.create_map_ctx()),
+            map_range(
+                harness.inner.root_table,
+                attrs,
+                &mut harness.create_map_ctx()
+            ),
             Err(KernelError::MappingError(MapError::VirtNotAligned))
         ));
     }
@@ -836,7 +817,11 @@ pub mod tests {
         };
 
         assert!(matches!(
-            map_range(harness.l0_table, attrs, &mut harness.create_map_ctx()),
+            map_range(
+                harness.inner.root_table,
+                attrs,
+                &mut harness.create_map_ctx()
+            ),
             Err(KernelError::MappingError(MapError::SizeMismatch))
         ));
     }
@@ -851,7 +836,7 @@ pub mod tests {
 
         // First mapping should succeed.
         map_range(
-            harness.l0_table,
+            harness.inner.root_table,
             MapAttributes {
                 phys: pa1,
                 virt,
@@ -863,7 +848,7 @@ pub mod tests {
 
         // Attempting to map the same VA again should fail.
         let result = map_range(
-            harness.l0_table,
+            harness.inner.root_table,
             MapAttributes {
                 phys: pa2,
                 virt,
@@ -893,7 +878,7 @@ pub mod tests {
         let virt_block = VirtMemoryRegion::new(block_va, block_size);
 
         map_range(
-            harness.l0_table,
+            harness.inner.root_table,
             MapAttributes {
                 phys: phys_block,
                 virt: virt_block,
@@ -908,7 +893,7 @@ pub mod tests {
         let virt_page = VirtMemoryRegion::new(block_va.add_pages(1), PAGE_SIZE);
 
         let result = map_range(
-            harness.l0_table,
+            harness.inner.root_table,
             MapAttributes {
                 phys: phys_page,
                 virt: virt_page,
@@ -940,7 +925,7 @@ pub mod tests {
         let virt_page = VirtMemoryRegion::new(block_va, PAGE_SIZE);
 
         map_range(
-            harness.l0_table,
+            harness.inner.root_table,
             MapAttributes {
                 phys: phys_page,
                 virt: virt_page,
@@ -955,7 +940,7 @@ pub mod tests {
         let virt_block = VirtMemoryRegion::new(block_va, block_size);
 
         let result = map_range(
-            harness.l0_table,
+            harness.inner.root_table,
             MapAttributes {
                 phys: phys_block,
                 virt: virt_block,

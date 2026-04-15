@@ -10,6 +10,10 @@ use permissions::PtePermissions;
 
 pub mod permissions;
 
+#[cfg(test)]
+#[allow(missing_docs)]
+pub mod test;
+
 /// Trait for common behavior across different types of page table entries.
 pub trait PageTableEntry: Sized + Copy + Clone {
     /// The raw pod-type used for the descriptor.

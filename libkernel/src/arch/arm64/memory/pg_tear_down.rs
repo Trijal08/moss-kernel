@@ -157,11 +157,11 @@ mod tests {
     fn teardown_empty_table() {
         let mut harness = TestHarness::new(5);
 
-        let freed = capture_freed_pages(harness.l0_table, &mut harness.create_walk_ctx());
+        let freed = capture_freed_pages(harness.inner.root_table, &mut harness.create_walk_ctx());
 
         // Only the Root L0 table itself is freed.
         assert_eq!(freed.len(), 1);
-        assert!(freed.contains(&harness.l0_table.value()));
+        assert!(freed.contains(&harness.inner.root_table.value()));
     }
 
     #[test]
@@ -175,7 +175,7 @@ mod tests {
             .map_4k_pages(pa, va.value(), 1, PtePermissions::ro(false))
             .unwrap();
 
-        let freed = capture_freed_pages(harness.l0_table, &mut harness.create_walk_ctx());
+        let freed = capture_freed_pages(harness.inner.root_table, &mut harness.create_walk_ctx());
 
         // 1 Payload Page (0x80000)
         // 1 L3 Table
@@ -184,7 +184,7 @@ mod tests {
         // 1 L0 Table (Root)
         assert_eq!(freed.len(), 5);
         assert!(freed.contains(&pa)); // The payload
-        assert!(freed.contains(&harness.l0_table.value())); // The root
+        assert!(freed.contains(&harness.inner.root_table.value())); // The root
     }
 
     #[test]
@@ -207,7 +207,7 @@ mod tests {
             .map_4k_pages(pa2, va2.value(), 1, PtePermissions::rw(false))
             .unwrap();
 
-        let freed = capture_freed_pages(harness.l0_table, &mut harness.create_walk_ctx());
+        let freed = capture_freed_pages(harness.inner.root_table, &mut harness.create_walk_ctx());
 
         // 2 Payload Pages
         // 1 L3 Table (shared)
@@ -233,7 +233,7 @@ mod tests {
             .map_4k_pages(0xB0000, va2.value(), 1, PtePermissions::rw(false))
             .unwrap();
 
-        let freed = capture_freed_pages(harness.l0_table, &mut harness.create_walk_ctx());
+        let freed = capture_freed_pages(harness.inner.root_table, &mut harness.create_walk_ctx());
 
         // 2 Payload Pages
         // 2 L3 Tables (one for each branch)
@@ -254,7 +254,7 @@ mod tests {
             .map_4k_pages(start_pa, start_va.value(), 512, PtePermissions::ro(false))
             .unwrap();
 
-        let freed = capture_freed_pages(harness.l0_table, &mut harness.create_walk_ctx());
+        let freed = capture_freed_pages(harness.inner.root_table, &mut harness.create_walk_ctx());
 
         // 512 Payload Pages
         // 1 L3 Table
