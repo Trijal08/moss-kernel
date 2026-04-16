@@ -8,26 +8,11 @@ use crate::{
         address::{TPA, TVA, VA},
         paging::{
             PaMapper, PageAllocator, PageTableEntry, PageTableMapper, PgTable, PgTableArray,
-            TLBInvalidator, TableMapper, permissions::PtePermissions,
+            TLBInvalidator, TableMapper, TableMapperTable, permissions::PtePermissions,
         },
         region::{PhysMemoryRegion, VirtMemoryRegion},
     },
 };
-
-pub(super) trait TableMapperTable: PgTable<Descriptor: TableMapper> + Clone + Copy {
-    type NextLevel: PgTable;
-
-    /// Follows a descriptor to the next-level table if it's a valid table descriptor.
-    ///
-    /// This function is primarily used in tests to verify the integrity of the
-    /// page table hierarchy after a mapping operation. It is not used in the hot
-    /// path of `map_range` itself, so a `dead_code` warning is allowed.
-    #[allow(dead_code)]
-    fn next_table_pa(self, va: VA) -> Option<TPA<PgTableArray<Self::NextLevel>>> {
-        let desc = self.get_desc(va);
-        Some(TPA::from_value(desc.next_table_address()?.value()))
-    }
-}
 
 macro_rules! impl_pgtable {
     ($(#[$outer:meta])* $table:ident, desc: $desc_type:ident) => {

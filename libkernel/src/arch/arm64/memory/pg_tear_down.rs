@@ -1,13 +1,14 @@
 //! Utilities for tearing down and freeing page table hierarchies.
 
-use super::pg_tables::L0Table;
-use super::{
-    pg_tables::{L3Table, TableMapperTable},
-    pg_walk::WalkContext,
-};
+use super::pg_tables::{L0Table, L3Table};
 use crate::error::Result;
-use crate::memory::address::{PA, TPA};
-use crate::memory::paging::{PaMapper, PageTableMapper, PgTable, PgTableArray, TableMapper};
+use crate::memory::{
+    address::{PA, TPA},
+    paging::{
+        PaMapper, PageTableMapper, PgTable, PgTableArray, TableMapper, TableMapperTable,
+        walk::WalkContext,
+    },
+};
 
 trait RecursiveTeardownWalker: PgTable + Sized {
     fn tear_down<F, PM>(

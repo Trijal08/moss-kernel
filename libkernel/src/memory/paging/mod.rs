@@ -9,6 +9,7 @@ use core::marker::PhantomData;
 use permissions::PtePermissions;
 
 pub mod permissions;
+pub(crate) mod walk;
 
 #[cfg(test)]
 #[allow(missing_docs)]
@@ -179,6 +180,17 @@ pub trait PageTableMapper {
         pa: TPA<PgTableArray<T>>,
         f: impl FnOnce(TVA<PgTableArray<T>>) -> R,
     ) -> crate::error::Result<R>;
+}
+
+pub(crate) trait TableMapperTable: PgTable<Descriptor: TableMapper> + Clone + Copy {
+    type NextLevel: PgTable;
+
+    /// Follows a descriptor to the next-level table if it's a valid table descriptor.
+    #[allow(dead_code)]
+    fn next_table_pa(self, va: VA) -> Option<TPA<PgTableArray<Self::NextLevel>>> {
+        let desc = self.get_desc(va);
+        Some(TPA::from_value(desc.next_table_address()?.value()))
+    }
 }
 
 /// Trait for allocating new page tables during address space setup.
