@@ -119,11 +119,13 @@ mod tests {
         arch::x86_64::memory::{
             pg_descriptors::{MemoryType, PDE},
             pg_tables::{PDPTable, PDTable, map_at_level, tests::TestHarness},
-        }, error::KernelError, memory::{
+        },
+        error::KernelError,
+        memory::{
             PAGE_SIZE,
             address::{PA, VA},
             paging::{PaMapper, permissions::PtePermissions},
-        }
+        },
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -386,5 +388,34 @@ mod tests {
             result,
             Err(KernelError::MappingError(MapError::VirtNotAligned))
         ));
+    }
+
+    #[test]
+    fn walk_at_canonical_kernel_va() {
+        let mut harness = TestHarness::new(4);
+
+        // Canonical kernel VA: bits [63:48] = 0xFFFF (sign extension of bit 47 = 1).
+        // PML4 index 256 — the first kernel entry.
+        let va = VA::from_value(0xFFFF_8000_0001_0000usize);
+        let pa = 0x8_0000;
+
+        harness
+            .map_4k_pages(pa, va.value(), 1, PtePermissions::ro(false))
+            .unwrap();
+
+        let mut was_called = false;
+        walk_and_modify_region(
+            harness.inner.root_table,
+            VirtMemoryRegion::new(va, PAGE_SIZE),
+            &mut harness.inner.create_walk_ctx(),
+            &mut |_va, desc: PTE| {
+                was_called = true;
+                assert_eq!(desc.mapped_address().unwrap().value(), pa);
+                desc
+            },
+        )
+        .unwrap();
+
+        assert!(was_called);
     }
 }

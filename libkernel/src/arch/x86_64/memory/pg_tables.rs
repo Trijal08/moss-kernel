@@ -437,6 +437,86 @@ pub mod tests {
     }
 
     #[test]
+    fn test_pg_index_canonical_kernel_address() {
+        // Canonical kernel VAs have bits [63:48] = 0xFFFF (sign extension of bit 47).
+        // The masking by LEVEL_MASK (0x1FF) must strip those upper bits cleanly.
+
+        // 0xFFFF_8000_0000_0000: PML4=256, PDP=0, PD=0, PT=0, offset=0
+        let first_kernel_va = VA::from_value(0xFFFF_8000_0000_0000usize);
+        assert_eq!(PML4Table::pg_index(first_kernel_va), 256);
+        assert_eq!(PDPTable::pg_index(first_kernel_va), 0);
+        assert_eq!(PDTable::pg_index(first_kernel_va), 0);
+        assert_eq!(PTable::pg_index(first_kernel_va), 0);
+
+        // 0xFFFF_FFFF_FFFF_F000: PML4=511, PDP=511, PD=511, PT=511, offset=0
+        let last_kernel_page = VA::from_value(0xFFFF_FFFF_FFFF_F000usize);
+        assert_eq!(PML4Table::pg_index(last_kernel_page), 511);
+        assert_eq!(PDPTable::pg_index(last_kernel_page), 511);
+        assert_eq!(PDTable::pg_index(last_kernel_page), 511);
+        assert_eq!(PTable::pg_index(last_kernel_page), 511);
+    }
+
+    #[test]
+    fn test_map_single_4k_page_canonical_kernel_va() -> Result<()> {
+        let mut harness = TestHarness::new(4);
+
+        // Canonical kernel VA: bits [63:48] = 0xFFFF (sign extension of bit 47 = 1).
+        // This VA lands at PML4 index 256, which is the first kernel entry.
+        let phys = PhysMemoryRegion::new(PA::from_value(0x8_0000), PAGE_SIZE);
+        let virt = VirtMemoryRegion::new(VA::from_value(0xFFFF_8000_0001_0000usize), PAGE_SIZE);
+
+        map_range(
+            harness.inner.root_table,
+            MapAttributes {
+                phys,
+                virt,
+                mem_type: MemoryType::WB,
+                perms: PtePermissions::rw(false),
+            },
+            &mut harness.create_map_ctx(),
+        )?;
+
+        let va = virt.start_address();
+        assert_eq!(PML4Table::pg_index(va), 256);
+
+        let pdp_tpa = unsafe {
+            harness
+                .inner
+                .mapper
+                .with_page_table(harness.inner.root_table, |tbl| {
+                    PML4Table::from_ptr(tbl)
+                        .next_table_pa(va)
+                        .expect("PDP should exist at kernel PML4 index 256")
+                })?
+        };
+        let pd_tpa = unsafe {
+            harness.inner.mapper.with_page_table(pdp_tpa, |tbl| {
+                PDPTable::from_ptr(tbl)
+                    .next_table_pa(va)
+                    .expect("PD should exist")
+            })?
+        };
+        let pt_tpa = unsafe {
+            harness.inner.mapper.with_page_table(pd_tpa, |tbl| {
+                PDTable::from_ptr(tbl)
+                    .next_table_pa(va)
+                    .expect("PT should exist")
+            })?
+        };
+        let pt_desc = unsafe {
+            harness
+                .inner
+                .mapper
+                .with_page_table(pt_tpa, |tbl| PTable::from_ptr(tbl).get_desc(va))?
+        };
+
+        assert!(pt_desc.is_valid());
+        assert_eq!(pt_desc.mapped_address().unwrap(), phys.start_address());
+
+        Ok(())
+    }
+
+    #[test]
     fn test_map_single_4k_page() -> Result<()> {
         let mut harness = TestHarness::new(4);
 
