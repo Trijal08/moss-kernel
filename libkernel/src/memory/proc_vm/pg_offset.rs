@@ -1,7 +1,7 @@
 //! Page-offset arithmetic helpers.
 
-use super::address::{AddressTranslator, TPA, TVA};
-use crate::VirtualMemory;
+use super::address_space::VirtualMemory;
+use crate::memory::address::{AddressTranslator, TPA, TVA};
 use core::marker::PhantomData;
 
 /// Translates between physical and virtual addresses using a fixed page-offset mapping.

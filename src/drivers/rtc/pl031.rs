@@ -9,8 +9,8 @@ use alloc::sync::Arc;
 use core::time::Duration;
 use libkernel::error::{ProbeError, Result};
 use libkernel::memory::address::{PA, VA};
+use libkernel::memory::proc_vm::address_space::{KernAddressSpace, VirtualMemory};
 use libkernel::memory::region::PhysMemoryRegion;
-use libkernel::{KernAddressSpace, VirtualMemory};
 
 /// Driver for a PL031 real-time clock.
 pub struct PL031 {

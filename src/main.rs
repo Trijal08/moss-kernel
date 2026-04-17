@@ -21,13 +21,14 @@ use drivers::{fdt_prober::get_fdt, fs::register_fs_drivers};
 use fs::VFS;
 use getargs::{Opt, Options};
 use libkernel::{
-    CpuOps, VirtualMemory,
+    CpuOps,
     fs::{
         BlockDevice, OpenFlags, attr::FilePermissions, blk::ramdisk::RamdiskBlkDev, path::Path,
         pathbuf::PathBuf,
     },
     memory::{
         address::{PA, VA},
+        proc_vm::address_space::VirtualMemory,
         region::PhysMemoryRegion,
     },
 };

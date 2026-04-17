@@ -1,13 +1,13 @@
 //! RAM-backed block device implementation.
 
 use crate::{
-    KernAddressSpace,
     error::{IoError, KernelError, Result},
     fs::BlockDevice,
     memory::{
         PAGE_SIZE,
         address::{TVA, VA},
-        permissions::PtePermissions,
+        paging::permissions::PtePermissions,
+        proc_vm::address_space::KernAddressSpace,
         region::{PhysMemoryRegion, VirtMemoryRegion},
     },
 };

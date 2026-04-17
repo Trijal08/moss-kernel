@@ -24,11 +24,12 @@ use core::{
     time::Duration,
 };
 use libkernel::{
-    CpuOps, KernAddressSpace, VirtualMemory,
+    CpuOps,
     error::{KernelError, Result},
     memory::{
         address::{PA, VA},
-        permissions::PtePermissions,
+        paging::permissions::PtePermissions,
+        proc_vm::address_space::{KernAddressSpace, VirtualMemory},
     },
 };
 use log::{info, warn};

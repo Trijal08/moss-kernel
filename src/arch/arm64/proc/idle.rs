@@ -4,14 +4,14 @@ use crate::{
     process::owned::OwnedTask,
 };
 use core::arch::global_asm;
-use libkernel::{
-    UserAddressSpace, VirtualMemory,
-    memory::{
-        address::VA,
-        permissions::PtePermissions,
-        proc_vm::vmarea::{VMAPermissions, VMArea, VMAreaKind},
-        region::VirtMemoryRegion,
+use libkernel::memory::{
+    address::VA,
+    paging::permissions::PtePermissions,
+    proc_vm::{
+        address_space::{UserAddressSpace, VirtualMemory},
+        vmarea::{VMAPermissions, VMArea, VMAreaKind},
     },
+    region::VirtMemoryRegion,
 };
 
 global_asm!(include_str!("idle.s"));

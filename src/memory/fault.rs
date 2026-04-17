@@ -2,9 +2,15 @@ use crate::{process::ProcVM, sync::SpinLock};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use libkernel::{
-    PageInfo, UserAddressSpace,
     error::{KernelError, MapError, Result},
-    memory::{address::VA, permissions::PtePermissions, proc_vm::vmarea::AccessKind},
+    memory::{
+        address::VA,
+        paging::permissions::PtePermissions,
+        proc_vm::{
+            address_space::{PageInfo, UserAddressSpace},
+            vmarea::AccessKind,
+        },
+    },
 };
 
 use super::{PAGE_ALLOC, page::ClaimedPage};

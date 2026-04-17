@@ -16,10 +16,10 @@ use aarch64_cpu::registers::MPIDR_EL1;
 use alloc::{boxed::Box, sync::Arc};
 use core::arch::asm;
 use libkernel::{
-    KernAddressSpace, VirtualMemory,
     error::{KernelError, Result},
     memory::{
         address::{PA, VA},
+        proc_vm::address_space::{KernAddressSpace, VirtualMemory},
         region::PhysMemoryRegion,
     },
 };

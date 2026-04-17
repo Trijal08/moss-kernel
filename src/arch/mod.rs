@@ -20,9 +20,12 @@ use crate::{
 use alloc::string::String;
 use alloc::sync::Arc;
 use libkernel::{
-    CpuOps, VirtualMemory,
+    CpuOps,
     error::Result,
-    memory::address::{UA, VA},
+    memory::{
+        address::{UA, VA},
+        proc_vm::address_space::VirtualMemory,
+    },
 };
 
 pub trait Arch: CpuOps + VirtualMemory {

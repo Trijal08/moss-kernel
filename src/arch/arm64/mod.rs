@@ -7,10 +7,14 @@ use alloc::sync::Arc;
 use cpu_ops::{local_irq_restore, local_irq_save};
 use exceptions::ExceptionState;
 use libkernel::{
-    CpuOps, VirtualMemory,
-    arch::arm64::memory::pg_tables::{L0Table, PgTableArray},
+    CpuOps,
+    arch::arm64::memory::pg_tables::L0Table,
     error::Result,
-    memory::address::{UA, VA},
+    memory::{
+        address::{UA, VA},
+        paging::PgTableArray,
+        proc_vm::address_space::VirtualMemory,
+    },
 };
 use memory::{
     PAGE_OFFSET,

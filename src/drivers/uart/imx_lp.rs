@@ -12,10 +12,10 @@ use aarch64_cpu::registers::{ReadWriteable, Readable, Writeable};
 use alloc::{boxed::Box, sync::Arc};
 use core::hint::spin_loop;
 use libkernel::{
-    KernAddressSpace, VirtualMemory,
     error::Result,
     memory::{
         address::{PA, VA},
+        proc_vm::address_space::{KernAddressSpace, VirtualMemory},
         region::PhysMemoryRegion,
     },
 };

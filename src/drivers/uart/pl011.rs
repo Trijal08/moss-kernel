@@ -13,10 +13,10 @@ use arm_pl011_uart::{
 };
 use core::ptr::NonNull;
 use libkernel::{
-    KernAddressSpace, VirtualMemory,
     error::{ProbeError, Result},
     memory::{
         address::{PA, VA},
+        proc_vm::address_space::{KernAddressSpace, VirtualMemory},
         region::PhysMemoryRegion,
     },
 };

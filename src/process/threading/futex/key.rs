@@ -1,7 +1,7 @@
 use crate::sched::syscall_ctx::ProcessCtx;
-use libkernel::UserAddressSpace;
 use libkernel::error::{KernelError, Result};
 use libkernel::memory::address::{TUA, VA};
+use libkernel::memory::proc_vm::address_space::UserAddressSpace;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub enum FutexKey {

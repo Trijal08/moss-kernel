@@ -9,8 +9,6 @@
 //! feature flags.
 
 pub mod address;
-#[cfg(feature = "paging")]
-pub mod address_space;
 #[cfg(feature = "alloc")]
 pub mod allocators;
 #[cfg(feature = "alloc")]
@@ -19,9 +17,7 @@ pub mod claimed_page;
 pub mod kbuf;
 pub mod page;
 #[cfg(feature = "paging")]
-pub mod permissions;
-#[cfg(feature = "paging")]
-pub mod pg_offset;
+pub mod paging;
 #[cfg(feature = "proc_vm")]
 pub mod proc_vm;
 pub mod region;

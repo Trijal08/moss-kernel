@@ -16,9 +16,12 @@ use crate::{
 };
 use alloc::{boxed::Box, sync::Arc};
 use libkernel::{
-    UserAddressSpace,
     error::Result,
-    memory::{address::VA, proc_vm::vmarea::AccessKind, region::VirtMemoryRegion},
+    memory::{
+        address::VA,
+        proc_vm::{address_space::UserAddressSpace, vmarea::AccessKind},
+        region::VirtMemoryRegion,
+    },
 };
 
 #[repr(C)]

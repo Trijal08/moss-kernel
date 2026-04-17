@@ -13,7 +13,7 @@ gates to keep the dependency footprint minimal.
 |-----------|-------------------------------------------------------|------------------|
 | `sync`    | Synchronisation primitives (spinlock, mutex, rwlock…) | —                |
 | `alloc`   | Memory allocators (buddy, slab) and collection types  | `sync`           |
-| `paging`  | Page tables, address-space management, PTE helpers    | `alloc`          |
+| `paging`  | Page tables, PTE helpers                              | `alloc`          |
 | `proc`    | Process identity types (UID/GID, capabilities)        | —                |
 | `fs`      | VFS traits, path manipulation, block I/O              | `proc`, `sync`   |
 | `proc_vm` | Process virtual-memory management (mmap, brk, CoW)    | `paging`, `fs`   |

@@ -1,6 +1,6 @@
 use crate::process::Task;
 use alloc::sync::Arc;
-use libkernel::UserAddressSpace;
+use libkernel::memory::proc_vm::address_space::UserAddressSpace;
 
 pub mod idle;
 pub mod signal;

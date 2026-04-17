@@ -18,8 +18,8 @@ use alloc::{
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use creds::Credentials;
 use fd_table::FileDescriptorTable;
+use libkernel::memory::proc_vm::address_space::{UserAddressSpace, VirtualMemory};
 use libkernel::{
-    UserAddressSpace, VirtualMemory,
     error::{KernelError, Result},
     fs::{Inode, pathbuf::PathBuf},
     memory::{

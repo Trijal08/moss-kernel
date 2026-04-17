@@ -1,10 +1,10 @@
 use core::arch::global_asm;
 use libkernel::{
-    KernAddressSpace, VirtualMemory,
     error::Result,
     memory::{
         address::VA,
-        permissions::PtePermissions,
+        paging::permissions::PtePermissions,
+        proc_vm::address_space::{KernAddressSpace, VirtualMemory},
         region::{PhysMemoryRegion, VirtMemoryRegion},
     },
 };

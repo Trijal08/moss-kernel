@@ -8,7 +8,7 @@ use crate::{
     memory::{
         address::VA,
         page::PageFrame,
-        permissions::PtePermissions,
+        paging::permissions::PtePermissions,
         region::{PhysMemoryRegion, VirtMemoryRegion},
     },
     sync::spinlock::SpinLockIrq,

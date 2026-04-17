@@ -20,11 +20,10 @@ use alloc::sync::Arc;
 use core::ops::Deref;
 use core::sync::atomic::AtomicUsize;
 use libkernel::{
-    VirtualMemory,
     fs::pathbuf::PathBuf,
     memory::{
         address::{TUA, VA},
-        proc_vm::{ProcessVM, vmarea::VMArea},
+        proc_vm::{ProcessVM, address_space::VirtualMemory, vmarea::VMArea},
     },
 };
 

@@ -2,9 +2,9 @@ use core::marker::PhantomData;
 
 use crate::memory::page::ClaimedPage;
 use libkernel::{
-    arch::arm64::memory::pg_tables::{PageAllocator, PgTable, PgTableArray},
     error::Result,
     memory::address::TPA,
+    memory::paging::{PageAllocator, PgTable, PgTableArray},
 };
 
 pub struct PageTableAllocator<'a> {

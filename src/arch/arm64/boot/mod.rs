@@ -27,11 +27,12 @@ use aarch64_cpu::{
 use core::arch::global_asm;
 use libkernel::{
     CpuOps,
-    arch::arm64::memory::pg_tables::{L0Table, PgTableArray},
+    arch::arm64::memory::pg_tables::L0Table,
     error::Result,
     memory::{
         address::{PA, TPA, VA},
         allocators::{phys::FrameAllocator, slab::allocator::SlabAllocator},
+        paging::PgTableArray,
     },
     sync::per_cpu::setup_percpu,
 };

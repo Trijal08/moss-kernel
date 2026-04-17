@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use libkernel::arch::arm64::memory::tlb::TLBInvalidator;
+use libkernel::memory::paging::TLBInvalidator;
 
 pub struct AllEl1TlbInvalidator;
 

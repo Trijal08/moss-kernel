@@ -3,7 +3,7 @@
 use core::fmt;
 
 #[cfg(feature = "proc_vm")]
-use super::proc_vm::vmarea::VMAPermissions;
+use crate::memory::proc_vm::vmarea::VMAPermissions;
 
 /// Represents the memory permissions for a virtual memory mapping.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -135,7 +135,7 @@ impl PtePermissions {
     ///
     /// # Example
     /// ```
-    /// use libkernel::memory::permissions::PtePermissions;
+    /// use libkernel::memory::paging::permissions::PtePermissions;
     ///
     /// let perms = PtePermissions::rw(true);
     /// let cow_perms = perms.into_cow();
@@ -165,7 +165,7 @@ impl PtePermissions {
     ///
     /// # Example
     /// ```
-    /// use libkernel::memory::permissions::PtePermissions;
+    /// use libkernel::memory::paging::permissions::PtePermissions;
     ///
     /// let cow_perms = PtePermissions::rw(true).into_cow();
     /// let writable_perms = cow_perms.from_cow();

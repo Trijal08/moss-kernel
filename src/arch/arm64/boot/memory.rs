@@ -8,13 +8,13 @@ use core::ptr::NonNull;
 use libkernel::{
     arch::arm64::memory::{
         pg_descriptors::MemoryType,
-        pg_tables::{L0Table, MapAttributes, MappingContext, PgTableArray, map_range},
+        pg_tables::{L0Table, MapAttributes, MappingContext, map_range},
     },
     error::{KernelError, Result},
     memory::{
         PAGE_SIZE,
         address::{PA, TPA, VA},
-        permissions::PtePermissions,
+        paging::{PgTableArray, permissions::PtePermissions},
         region::{PhysMemoryRegion, VirtMemoryRegion},
     },
 };

@@ -1,14 +1,14 @@
 use super::MemoryMap;
 use crate::{
-    PageInfo, UserAddressSpace,
     error::Result,
     fs::Inode,
     memory::{
         PAGE_SIZE,
         address::VA,
         page::PageFrame,
-        permissions::PtePermissions,
+        paging::permissions::PtePermissions,
         proc_vm::{
+            address_space::{PageInfo, UserAddressSpace},
             memory_map::{AddressRequest, MMAP_BASE},
             vmarea::{VMAPermissions, VMArea, VMAreaKind, VMFileMapping, tests::DummyTestInode},
         },

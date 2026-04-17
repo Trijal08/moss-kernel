@@ -1,11 +1,13 @@
 //! Memory map management for a process address space.
 
-use super::vmarea::{VMAPermissions, VMArea, VMAreaKind};
+use super::{
+    address_space::UserAddressSpace,
+    vmarea::{VMAPermissions, VMArea, VMAreaKind},
+};
 use crate::{
-    UserAddressSpace,
     error::{KernelError, Result},
     memory::{
-        PAGE_MASK, PAGE_SIZE, address::VA, page::PageFrame, permissions::PtePermissions,
+        PAGE_MASK, PAGE_SIZE, address::VA, page::PageFrame, paging::permissions::PtePermissions,
         region::VirtMemoryRegion,
     },
 };

@@ -1,11 +1,11 @@
 use alloc::vec;
 use alloc::vec::Vec;
+use libkernel::memory::proc_vm::address_space::UserAddressSpace;
 
 use crate::memory::uaccess::copy_to_user_slice;
 use crate::sched::syscall_ctx::ProcessCtx;
 use libkernel::memory::region::VirtMemoryRegion;
 use libkernel::{
-    UserAddressSpace,
     error::{KernelError, Result},
     memory::PAGE_SHIFT,
     memory::address::{UA, VA},

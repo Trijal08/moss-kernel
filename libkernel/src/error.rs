@@ -76,6 +76,10 @@ pub enum MapError {
     #[error("The VA range is has already been mapped")]
     AlreadyMapped,
 
+    /// The virtual address is not canonical (bits [63:48] are not a sign-extension of bit 47).
+    #[error("Virtual address is not canonical")]
+    NonCanonicalAddress,
+
     /// Page table does not contain an L3 mapping.
     #[error("Page table does not contain an L3 mapping")]
     NotL3Mapped,

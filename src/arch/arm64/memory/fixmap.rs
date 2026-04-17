@@ -6,17 +6,17 @@ use core::{
 };
 use libkernel::{
     arch::arm64::memory::{
-        pg_descriptors::{
-            L0Descriptor, L1Descriptor, L2Descriptor, L3Descriptor, MemoryType, PaMapper,
-            PageTableEntry, TableMapper,
-        },
-        pg_tables::{L0Table, L1Table, L2Table, L3Table, PgTable, PgTableArray},
+        pg_descriptors::{L0Descriptor, L1Descriptor, L2Descriptor, L3Descriptor, MemoryType},
+        pg_tables::{L0Table, L1Table, L2Table, L3Table},
     },
     error::{KernelError, Result},
     memory::{
         PAGE_SIZE,
         address::{IdentityTranslator, TPA, TVA, VA},
-        permissions::PtePermissions,
+        paging::{
+            PaMapper, PageTableEntry, PgTable, PgTableArray, TableMapper,
+            permissions::PtePermissions,
+        },
         region::PhysMemoryRegion,
     },
 };
@@ -94,25 +94,27 @@ impl Fixmap {
 
         L1Table::from_ptr(TVA::from_ptr(&mut self.l1 as *mut _)).set_desc(
             FIXMAP_BASE,
-            L1Descriptor::new_next_table(ksym_pa!(self.l2)),
+            L1Descriptor::new_next_table(ksym_pa!(self.l2).cast()),
             &invalidator,
         );
 
         L2Table::from_ptr(TVA::from_ptr(&mut self.l2 as *mut _)).set_desc(
             FIXMAP_BASE,
-            L2Descriptor::new_next_table(ksym_pa!(self.l3[0])),
+            L2Descriptor::new_next_table(ksym_pa!(self.l3[0]).cast()),
             &invalidator,
         );
 
         L2Table::from_ptr(TVA::from_ptr(&mut self.l2 as *mut _)).set_desc(
-            VA::from_value(FIXMAP_BASE.value() + (1 << L2Table::SHIFT)),
-            L2Descriptor::new_next_table(ksym_pa!(self.l3[1])),
+            VA::from_value(
+                FIXMAP_BASE.value() + (1 << <L2Table as PgTable>::Descriptor::MAP_SHIFT),
+            ),
+            L2Descriptor::new_next_table(ksym_pa!(self.l3[1]).cast()),
             &invalidator,
         );
 
         l0_table.set_desc(
             FIXMAP_BASE,
-            L0Descriptor::new_next_table(ksym_pa!(self.l1)),
+            L0Descriptor::new_next_table(ksym_pa!(self.l1).cast()),
             &invalidator,
         );
     }

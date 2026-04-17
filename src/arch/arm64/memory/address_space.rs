@@ -10,21 +10,22 @@ use aarch64_cpu::{
 };
 use alloc::vec::Vec;
 use libkernel::{
-    PageInfo, UserAddressSpace,
     arch::arm64::memory::{
-        pg_descriptors::{L3Descriptor, MemoryType, PaMapper, PageTableEntry},
-        pg_tables::{
-            L0Table, MapAttributes, MappingContext, PageAllocator, PgTableArray, map_range,
-        },
+        pg_descriptors::{L3Descriptor, MemoryType},
+        pg_tables::{L0Table, MapAttributes, MappingContext, map_range},
         pg_tear_down::tear_down_address_space,
-        pg_walk::{WalkContext, get_pte, walk_and_modify_region},
+        pg_walk::{get_pte, walk_and_modify_region},
     },
     error::{KernelError, MapError, Result},
     memory::{
         PAGE_SIZE,
         address::{TPA, VA},
         page::PageFrame,
-        permissions::PtePermissions,
+        paging::{
+            PaMapper, PageAllocator, PageTableEntry, PgTableArray, permissions::PtePermissions,
+            walk::WalkContext,
+        },
+        proc_vm::address_space::{PageInfo, UserAddressSpace},
         region::{PhysMemoryRegion, VirtMemoryRegion},
     },
 };
@@ -208,11 +209,8 @@ impl Drop for Arm64ProcessAddressSpace {
             invalidator: &AllEl0TlbInvalidator::new(),
         };
 
-        if tear_down_address_space(self.l0_table, &mut walk_ctx, |addr| unsafe {
-            PAGE_ALLOC
-                .get()
-                .unwrap()
-                .alloc_from_region(addr.to_pfn().as_phys_range());
+        if tear_down_address_space(self.l0_table, &mut walk_ctx, |region| unsafe {
+            PAGE_ALLOC.get().unwrap().alloc_from_region(region);
         })
         .is_err()
         {

@@ -1,16 +1,16 @@
 use super::{MMIO_BASE, tlb::AllEl1TlbInvalidator};
 use crate::sync::{OnceLock, SpinLock};
 use libkernel::{
-    KernAddressSpace,
     arch::arm64::memory::{
-        pg_descriptors::{MemoryType, PaMapper},
-        pg_tables::{L0Table, MapAttributes, MappingContext, PgTableArray, map_range},
+        pg_descriptors::MemoryType,
+        pg_tables::{L0Table, MapAttributes, MappingContext, map_range},
         pg_walk::get_pte,
     },
     error::Result,
     memory::{
         address::{PA, TPA, VA},
-        permissions::PtePermissions,
+        paging::{PaMapper, PgTableArray, permissions::PtePermissions},
+        proc_vm::address_space::KernAddressSpace,
         region::{PhysMemoryRegion, VirtMemoryRegion},
     },
 };

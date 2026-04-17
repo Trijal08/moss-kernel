@@ -14,11 +14,11 @@ use aarch64_cpu::registers::{CPACR_EL1, ReadWriteable, VBAR_EL1};
 use core::{arch::global_asm, fmt::Display};
 use esr::{Esr, Exception};
 use libkernel::{
-    KernAddressSpace, VirtualMemory,
     error::Result,
     memory::{
         address::VA,
-        permissions::PtePermissions,
+        paging::permissions::PtePermissions,
+        proc_vm::address_space::{KernAddressSpace, VirtualMemory},
         region::{PhysMemoryRegion, VirtMemoryRegion},
     },
 };

@@ -1,7 +1,7 @@
 use libkernel::{
-    arch::arm64::memory::pg_tables::{PageTableMapper, PgTable, PgTableArray},
     error::Result,
     memory::address::{TPA, TVA},
+    memory::paging::{PageTableMapper, PgTable, PgTableArray},
 };
 
 use crate::memory::PageOffsetTranslator;

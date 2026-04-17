@@ -16,14 +16,14 @@ use alloc::{string::String, vec};
 use alloc::{string::ToString, sync::Arc, vec::Vec};
 use auxv::{AT_BASE, AT_ENTRY, AT_NULL, AT_PAGESZ, AT_PHDR, AT_PHENT, AT_PHNUM, AT_RANDOM};
 use core::{ffi::c_char, mem, slice};
+use libkernel::memory::proc_vm::address_space::{UserAddressSpace, VirtualMemory};
 use libkernel::{
-    UserAddressSpace, VirtualMemory,
     error::{ExecError, KernelError, Result},
     fs::{Inode, path::Path},
     memory::{
         PAGE_SIZE,
         address::{TUA, VA},
-        permissions::PtePermissions,
+        paging::permissions::PtePermissions,
         proc_vm::{
             ProcessVM,
             memory_map::MemoryMap,

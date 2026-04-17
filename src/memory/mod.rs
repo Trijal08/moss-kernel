@@ -18,7 +18,8 @@ pub mod page;
 pub mod process_vm;
 pub mod uaccess;
 
-pub type PageOffsetTranslator = libkernel::memory::pg_offset::PageOffsetTranslator<ArchImpl>;
+pub type PageOffsetTranslator =
+    libkernel::memory::proc_vm::pg_offset::PageOffsetTranslator<ArchImpl>;
 
 // Initial memory allocator. Used for initial memory setup.
 const STATIC_REGION_COUNT: usize = 128;

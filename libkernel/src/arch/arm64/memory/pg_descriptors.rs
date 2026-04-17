@@ -5,50 +5,12 @@ use tock_registers::interfaces::{ReadWriteable, Readable};
 use tock_registers::{register_bitfields, registers::InMemoryRegister};
 
 use crate::memory::PAGE_SHIFT;
-use crate::memory::address::{PA, VA};
-use crate::memory::permissions::PtePermissions;
+use crate::memory::address::{PA, TPA, VA};
+use crate::memory::paging::permissions::PtePermissions;
+use crate::memory::paging::{PaMapper, PageTableEntry, PgTableArray, TableMapper};
 use crate::memory::region::PhysMemoryRegion;
 
-/// Trait for common behavior across different types of page table entries.
-pub trait PageTableEntry: Sized + Copy + Clone {
-    /// Returns `true` if the entry is valid (i.e., not an Invalid/Fault entry).
-    fn is_valid(self) -> bool;
-
-    /// Returns the raw value of this page descriptor.
-    fn as_raw(self) -> u64;
-
-    /// Returns a representation of the page descriptor from a raw value.
-    fn from_raw(v: u64) -> Self;
-
-    /// Return a new invalid page descriptor.
-    fn invalid() -> Self;
-}
-
-/// Trait for descriptors that can point to a next-level table.
-pub trait TableMapper: PageTableEntry {
-    /// Returns the physical address of the next-level table, if this descriptor
-    /// is a table descriptor.
-    fn next_table_address(self) -> Option<PA>;
-
-    /// Creates a new descriptor that points to the given next-level table.
-    fn new_next_table(pa: PA) -> Self;
-}
-
-/// A descriptor that maps a physical address (L1, L2 blocks and L3 page).
-pub trait PaMapper: PageTableEntry {
-    /// Constructs a new valid page descriptor that maps a physical address.
-    fn new_map_pa(page_address: PA, memory_type: MemoryType, perms: PtePermissions) -> Self;
-
-    /// Return how many bytes this descriptor type maps.
-    fn map_shift() -> usize;
-
-    /// Whether a subsection of the region could be mapped via this type of
-    /// page.
-    fn could_map(region: PhysMemoryRegion, va: VA) -> bool;
-
-    /// Return the mapped physical address.
-    fn mapped_address(self) -> Option<PA>;
-}
+use super::pg_tables::{L1Table, L2Table, L3Table};
 
 #[derive(Clone, Copy)]
 struct TableAddr(PA);
@@ -76,12 +38,16 @@ macro_rules! define_descriptor {
     (
         $(#[$outer:meta])*
         $name:ident,
+        shift: $shift:literal,
         // Optional: Implement TableMapper if this section is present
-        $( table: $table_bits:literal, )?
+        $( table: {
+            bits: $table_bits:literal,
+            next_level: $next_level:ident,
+           },
+        )?
         // Optional: Implement PaMapper if this section is present
         $( map: {
                 bits: $map_bits:literal,
-                shift: $tbl_shift:literal,
                 oa_len: $oa_len:literal,
             },
         )?
@@ -92,24 +58,29 @@ macro_rules! define_descriptor {
         pub struct $name(u64);
 
         impl PageTableEntry for $name {
+            type RawDescriptor = u64;
+            const INVALID: u64 = 0;
+            const MAP_SHIFT: usize = $shift;
+
             fn is_valid(self) -> bool { (self.0 & 0b11) != 0 }
-            fn as_raw(self) -> u64 { self.0 }
-            fn from_raw(v: u64) -> Self { Self(v) }
-            fn invalid() -> Self { Self(0) }
+            fn as_raw(self) -> Self::RawDescriptor { self.0 }
+            fn from_raw(v: Self::RawDescriptor) -> Self { Self(v) }
         }
 
         $(
             impl TableMapper for $name {
-                fn next_table_address(self) -> Option<PA> {
+                type NextLevel = $next_level;
+
+                fn next_table_address(self) -> Option<TPA<PgTableArray<Self::NextLevel>>> {
                     if (self.0 & 0b11) == $table_bits {
-                        Some(TableAddr::from_raw_parts(self.0).0)
+                        Some(TableAddr::from_raw_parts(self.0).0.cast())
                     } else {
                         None
                     }
                 }
 
-                fn new_next_table(pa: PA) -> Self {
-                    Self(TableAddr(pa).as_raw_parts() | $table_bits)
+                fn new_next_table(pa: TPA<PgTableArray<Self::NextLevel>>) -> Self {
+                    Self(TableAddr(pa.to_untyped()).as_raw_parts() | $table_bits)
                 }
             }
         )?
@@ -129,7 +100,7 @@ macro_rules! define_descriptor {
                             XN OFFSET(54) NUMBITS(1) [ NotExecutable = 1, Executable = 0 ],
                             // Software defined bit
                             COW OFFSET(55) NUMBITS(1) [ CowShared = 1, NotCowShared = 0 ],
-                            OUTPUT_ADDR OFFSET($tbl_shift) NUMBITS($oa_len) []
+                            OUTPUT_ADDR OFFSET($shift) NUMBITS($oa_len) []
                         ]
                     ];
                 }
@@ -200,17 +171,17 @@ macro_rules! define_descriptor {
             }
 
             impl PaMapper for $name {
-                fn map_shift() -> usize { $tbl_shift }
+                type MemoryType = MemoryType;
 
                 fn could_map(region: PhysMemoryRegion, va: VA) -> bool {
-                    let is_aligned = |addr: usize| (addr & ((1 << $tbl_shift) - 1)) == 0;
+                    let is_aligned = |addr: usize| (addr & ((1 << Self::MAP_SHIFT) - 1)) == 0;
                     is_aligned(region.start_address().value())
                         && is_aligned(va.value())
-                        && region.size() >= (1 << $tbl_shift)
+                        && region.size() >= (1 << Self::MAP_SHIFT)
                 }
 
                 fn new_map_pa(page_address: PA, memory_type: MemoryType, perms: PtePermissions) -> Self {
-                    let is_aligned = |addr: usize| (addr & ((1 << $tbl_shift) - 1)) == 0;
+                    let is_aligned = |addr: usize| (addr & ((1 << Self::MAP_SHIFT) - 1)) == 0;
                     if !is_aligned(page_address.value()) {
                         panic!("Cannot map non-aligned physical address");
                     }
@@ -218,7 +189,7 @@ macro_rules! define_descriptor {
                     let reg = InMemoryRegister::new(0);
                     use [<$name Fields>]::BlockPageFields;
 
-                    reg.modify(BlockPageFields::OUTPUT_ADDR.val((page_address.value() >> $tbl_shift) as u64)
+                    reg.modify(BlockPageFields::OUTPUT_ADDR.val((page_address.value() >> Self::MAP_SHIFT) as u64)
                         + BlockPageFields::AF::Accessed);
 
                     match memory_type {
@@ -246,7 +217,7 @@ macro_rules! define_descriptor {
 
                     let reg = InMemoryRegister::new(self.0);
                     let addr = reg.read(BlockPageFields::OUTPUT_ADDR);
-                    Some(PA::from_value((addr << $tbl_shift) as usize))
+                    Some(PA::from_value((addr << Self::MAP_SHIFT) as usize))
                 }
             }
             }
@@ -257,16 +228,23 @@ macro_rules! define_descriptor {
 define_descriptor!(
     /// A Level 0 descriptor. Can only be an invalid or table descriptor.
     L0Descriptor,
-    table: 0b11,
+    shift: 39,
+    table: {
+        bits: 0b11,
+        next_level: L1Table,
+    },
 );
 
 define_descriptor!(
     /// A Level 1 descriptor. Can be a block, table, or invalid descriptor.
     L1Descriptor,
-    table: 0b11,
+    shift: 30,
+    table: {
+        bits: 0b11,
+        next_level: L2Table,
+    },
     map: {
         bits: 0b01,    // L1 Block descriptor has bits[1:0] = 01
-        shift: 30,     // Maps a 1GiB block
         oa_len: 18,    // Output address length for 48-bit PA
     },
 );
@@ -274,10 +252,13 @@ define_descriptor!(
 define_descriptor!(
     /// A Level 2 descriptor. Can be a block, table, or invalid descriptor.
     L2Descriptor,
-    table: 0b11,
+    shift: 21,
+    table: {
+        bits: 0b11,
+        next_level: L3Table,
+    },
     map: {
         bits: 0b01,    // L2 Block descriptor has bits[1:0] = 01
-        shift: 21,     // Maps a 2MiB block
         oa_len: 27,    // Output address length for 48-bit PA
     },
 );
@@ -285,10 +266,10 @@ define_descriptor!(
 define_descriptor!(
     /// A Level 3 descriptor. Can be a page or invalid descriptor.
     L3Descriptor,
+    shift: 12,
     // Note: No 'table' capability at L3.
     map: {
         bits: 0b11,    // L3 Page descriptor has bits[1:0] = 11
-        shift: 12,     // Maps a 4KiB page
         oa_len: 36,    // Output address length for 48-bit PA
     },
 );
@@ -345,21 +326,21 @@ mod tests {
     #[test]
     fn test_l0_table_descriptor() {
         let pa = PA::from_value(0x1000_0000);
-        let d = L0Descriptor::new_next_table(pa);
+        let d = L0Descriptor::new_next_table(pa.cast());
 
         assert!(d.is_valid());
         assert_eq!(d.as_raw(), 0x1000_0000 | 0b11);
-        assert_eq!(d.next_table_address(), Some(pa));
+        assert_eq!(d.next_table_address().map(|x| x.to_untyped()), Some(pa));
     }
 
     #[test]
     fn test_l1_table_descriptor() {
         let pa = PA::from_value(0x2000_0000);
-        let d = L1Descriptor::new_next_table(pa);
+        let d = L1Descriptor::new_next_table(pa.cast());
 
         assert!(d.is_valid());
         assert_eq!(d.as_raw(), 0x2000_0000 | 0b11);
-        assert_eq!(d.next_table_address(), Some(pa));
+        assert_eq!(d.next_table_address().map(|x| x.to_untyped()), Some(pa));
         assert!(d.mapped_address().is_none());
         assert!(d.permissions().is_none());
     }

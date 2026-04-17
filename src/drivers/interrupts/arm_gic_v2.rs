@@ -3,9 +3,12 @@ use alloc::{
     sync::{Arc, Weak},
 };
 use libkernel::{
-    KernAddressSpace, VirtualMemory,
     error::{KernelError, Result},
-    memory::{address::PA, region::PhysMemoryRegion},
+    memory::{
+        address::PA,
+        proc_vm::address_space::{KernAddressSpace, VirtualMemory},
+        region::PhysMemoryRegion,
+    },
 };
 use log::info;
 use tock_registers::{
