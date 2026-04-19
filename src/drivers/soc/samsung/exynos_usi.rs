@@ -9,11 +9,15 @@ use crate::{
 use aarch64_cpu::registers::{Readable, Writeable};
 use alloc::{boxed::Box, sync::Arc};
 use libkernel::{
-    KernAddressSpace, VirtualMemory,
     error::{ProbeError, Result},
     memory::{
         address::{PA, VA},
         region::PhysMemoryRegion,
+
+        proc_vm::{
+            address_space::KernAddressSpace,
+            address_space::VirtualMemory
+        }
     },
 };
 use tock_registers::{register_structs, registers::ReadWrite};
