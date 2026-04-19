@@ -108,18 +108,27 @@ async fn launch_init(mut ctx: ProcessCtx, mut opts: KOptions) {
     if let Some(start_addr) = start_addr
         && let Some(end_addr) = end_addr
     {
+        // 1. Align the addresses to 4KB (0x1000) boundaries
+        // We round the end_addr UP to the nearest page to ensure the whole ramdisk is included
+        let aligned_start = (start_addr as usize) & !0xfff;
+        let aligned_end = ((end_addr as usize) + 0xfff) & !0xfff;
+
         let region = PhysMemoryRegion::from_start_end_address(
-            PA::from_value(start_addr as _),
-            PA::from_value(end_addr as _),
+            PA::from_value(aligned_start as _),
+            PA::from_value(aligned_end as _),
         );
+
+        // 2. Use the HHDM base that matches your VDSO (0xffff_8000...)
+        let hhdm_base: usize = 0xffff_8000_0000_0000;
+        let virt_addr = VA::from_value(hhdm_base + aligned_start);
 
         Some(Box::new(
             RamdiskBlkDev::new(
                 region,
-                VA::from_value(0xffff_9800_0000_0000),
+                virt_addr,
                 &mut *ArchImpl::kern_address_space().lock_save_irq(),
             )
-            .unwrap(),
+            .expect("Ramdisk failed: likely address misalignment or HHDM mapping issue"),
         ))
         } else {
             None

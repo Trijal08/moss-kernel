@@ -52,7 +52,7 @@ use libkernel::{
 
 //pub mod bcm2835_aux;
 pub mod exynos_s5p;
-pub mod exynos_zuma_simple;
+// pub mod exynos_zuma_simple;
 pub mod imx_lp;
 pub mod pl011;
 
