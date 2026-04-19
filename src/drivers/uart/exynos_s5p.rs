@@ -12,11 +12,15 @@ use tock_registers::interfaces::{Readable, Writeable, ReadWriteable};
 use alloc::{boxed::Box, sync::Arc};
 use core::hint::spin_loop;
 use libkernel::{
-    KernAddressSpace, VirtualMemory,
     error::Result,
     memory::{
         address::{PA, VA},
         region::PhysMemoryRegion,
+
+        proc_vm::{
+            address_space::KernAddressSpace,
+            address_space::VirtualMemory
+        }
     },
 };
 use tock_registers::{
